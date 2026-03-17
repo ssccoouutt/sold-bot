@@ -696,6 +696,65 @@ const handleMessage = async (sock, msg) => {
         }
       }
     }
+
+     // Check for active bomb games (before prefix check)
+    try {
+      const bombModule = require('./commands/fun/bomb');
+      if (bombModule.gameState && bombModule.gameState.has(sender)) {
+        const bombCommand = commands.get('bomb');
+        if (bombCommand && bombCommand.execute) {
+          // User has active game, process input
+          await bombCommand.execute(sock, msg, [], {
+            from,
+            sender,
+            isGroup,
+            groupMetadata,
+            isOwner: isOwner(sender),
+            isAdmin: await isAdmin(sock, sender, from, groupMetadata),
+            isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
+            isMod: isMod(sender),
+            reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
+            react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } })
+          });
+          return; // Don't process as command
+        }
+      }
+    } catch (e) {
+      // Silently ignore if bomb command doesn't exist or has errors
+    }
+    
+    // Check for active tictactoe games (before prefix check)
+    try {
+      const tictactoeModule = require('./commands/fun/tictactoe');
+      if (tictactoeModule.handleTicTacToeMove) {
+        // Check if user is in an active game
+        const isInGame = Object.values(tictactoeModule.games || {}).some(room => 
+          room.id.startsWith('tictactoe') && 
+          [room.game.playerX, room.game.playerO].includes(sender) && 
+          room.state === 'PLAYING'
+        );
+        
+        if (isInGame) {
+          // User has active game, process input
+          const handled = await tictactoeModule.handleTicTacToeMove(sock, msg, {
+            from,
+            sender,
+            isGroup,
+            groupMetadata,
+            isOwner: isOwner(sender),
+            isAdmin: await isAdmin(sock, sender, from, groupMetadata),
+            isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
+            isMod: isMod(sender),
+            reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
+            react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } })
+          });
+          if (handled) return; // Don't process as command if move was handled
+        }
+      }
+    } catch (e) {
+      // Silently ignore if tictactoe command doesn't exist or has errors
+    }
+    
     
     // Check if message starts with prefix
     if (!body.startsWith(config.prefix)) return;
