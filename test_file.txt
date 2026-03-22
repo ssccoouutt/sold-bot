@@ -1,0 +1,2 @@
+This is a test file containing knight, Knight and KNIGHT for testing purposes.
+Another instance of KnightBot should also be replaced.
