@@ -49,7 +49,9 @@ module.exports = {
       nsfw: false,
       detect: false,
       chatbot: false,
-      autosticker: false // Auto-convert images/videos to stickers
+      autosticker: false, // Auto-convert images/videos to stickers
+      slowmode: false,
+      slowmodeCooldown: 30 // Cooldown in seconds between messages per user
     },
     
     // API Keys (add your own)
