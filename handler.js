@@ -500,9 +500,9 @@ const handleMessage = async (sock, msg) => {
       try {
         const groupSettings = database.getGroupSettings(from);
         if (groupSettings.slowmode) {
-          const senderIsAdmin = await isAdmin(sock, sender, from, groupMetadata);
           const senderIsOwner = isOwner(sender);
-          if (!senderIsAdmin && !senderIsOwner) {
+          const senderIsGroupOwner = groupMetadata && findParticipant(groupMetadata.participants || [], sender)?.admin === 'superadmin';
+          if (!senderIsOwner && !senderIsGroupOwner) {
             const cooldownMs = (groupSettings.slowmodeCooldown || 30) * 1000;
             const result = checkSlowMode(from, sender, cooldownMs);
             if (result.onCooldown) {
