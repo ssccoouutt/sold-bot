@@ -506,9 +506,9 @@ const handleMessage = async (sock, msg) => {
     if (groupSettings.slowmode) {
       // Only exempt owner and bot owner
      const senderIsGroupOwner = groupMetadata?.owner && (groupMetadata.owner === sender);
-const senderIsBotOwner = isOwner(sender);
-const senderIsAdmin = await isAdmin(sock, sender, from, groupMetadata);
-if (!senderIsGroupOwner && !senderIsBotOwner && !senderIsAdmin) {
+ const senderIsBotOwner = isOwner(sender);
+ const senderIsAdmin = await isAdmin(sock, sender, from, groupMetadata);
+ if (!senderIsGroupOwner && !senderIsBotOwner && !senderIsAdmin) {
         const cooldownMs = (groupSettings.slowmodeCooldown || 30) * 1000;
         const result = checkSlowMode(from, sender, cooldownMs);
         if (result.onCooldown) {
@@ -624,7 +624,20 @@ if (!senderIsGroupOwner && !senderIsBotOwner && !senderIsAdmin) {
         return;
       }
     }
-    
+
+    // Handle list response (interactive list selections)
+    const list = content.listResponseMessage || msg.message?.listResponseMessage;
+    if (list) {
+      const selectedRowId = list?.singleSelectReply?.selectedRowId || list?.selectedRowId;
+      if (selectedRowId && String(selectedRowId).startsWith('quiz_')) {
+        const quizCmd = commands.get('quiz');
+        if (quizCmd && typeof quizCmd.handleSelection === 'function') {
+          await quizCmd.handleSelection(sock, msg, selectedRowId);
+          return; // handled by quiz module
+        }
+      }
+    }
+
     // Get message body from unwrapped content
     let body = '';
     if (content.conversation) {
@@ -996,7 +1009,6 @@ const handleGroupUpdate = async (sock, update) => {
             phoneJid = participantInfo.phoneNumber;
           } else {
             // Try to normalize participantJid to phoneNumber format
-            // If it's a LID, try to convert to phoneNumber
             try {
               const normalized = normalizeJidWithLid(participantJid);
               if (normalized && normalized.includes('@s.whatsapp.net')) {
@@ -1288,16 +1300,16 @@ const handleAntigroupmention = async (sock, msg, groupMetadata) => {
       
       // Check for forwarded newsletter info in various message types
       isForwardedStatus = isForwardedStatus || 
-        (msg.message.extendedTextMessage && msg.message.extendedTextMessage.contextInfo && 
+        (msg.message.extendedTextMessage && msg.message.extendedTextMessage.contextInfo &&
          msg.message.extendedTextMessage.contextInfo.forwardedNewsletterMessageInfo);
       isForwardedStatus = isForwardedStatus || 
-        (msg.message.conversation && msg.message.contextInfo && 
+        (msg.message.conversation && msg.message.contextInfo &&
          msg.message.contextInfo.forwardedNewsletterMessageInfo);
       isForwardedStatus = isForwardedStatus || 
-        (msg.message.imageMessage && msg.message.imageMessage.contextInfo && 
+        (msg.message.imageMessage && msg.message.imageMessage.contextInfo &&
          msg.message.imageMessage.contextInfo.forwardedNewsletterMessageInfo);
       isForwardedStatus = isForwardedStatus || 
-        (msg.message.videoMessage && msg.message.videoMessage.contextInfo && 
+        (msg.message.videoMessage && msg.message.videoMessage.contextInfo &&
          msg.message.videoMessage.contextInfo.forwardedNewsletterMessageInfo);
       isForwardedStatus = isForwardedStatus || 
         (msg.message.contextInfo && msg.message.contextInfo.forwardedNewsletterMessageInfo);
@@ -1320,30 +1332,6 @@ const handleAntigroupmention = async (sock, msg, groupMetadata) => {
     }
     
     // Additional debug logging for detection
-    if (groupSettings.antigroupmention) {
-      // Debug log removed
-    }
-    
-    // Additional debug logging to help identify message structure
-    if (groupSettings.antigroupmention) {
-      // Debug log removed
-      // Debug log removed
-      if (msg.message) {
-        // Debug log removed
-        // Log specific message types that might indicate a forwarded status
-        if (msg.message.protocolMessage) {
-          // Debug log removed
-        }
-        if (msg.message.contextInfo) {
-          // Debug log removed
-        }
-        if (msg.message.extendedTextMessage && msg.message.extendedTextMessage.contextInfo) {
-          // Debug log removed
-        }
-      }
-    }
-    
-    // Debug logging for detection
     if (groupSettings.antigroupmention) {
       // Debug log removed
     }
