@@ -58,6 +58,7 @@ const {
   useMultiFileAuthState,
   DisconnectReason,
   Browsers,
+  fetchLatestBaileysVersion
 } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
 const config = require('./config');
@@ -85,7 +86,7 @@ function cleanupPuppeteerCache() {
 // Optimized in-memory store with hard limits (Map-based for better memory management)
 const store = {
   messages: new Map(), // Use Map instead of plain object
-  maxPerChat: 10, // Limit to 10 messages per chat
+  maxPerChat: 20, // Limit to 20 messages per chat
 
   bind: (ev) => {
     ev.on('messages.upsert', ({ messages }) => {
@@ -219,28 +220,25 @@ async function startBot() {
   }
 
   const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
-  const version = [2, 3000, 1015901307];
- // fixed version, network call nahi hogi
+  const { version } = await fetchLatestBaileysVersion();
 
   // Use suppressed logger for socket
   const suppressedLogger = createSuppressedLogger('silent');
 
   const sock = makeWASocket({
-  version, // explicit WA Web version negotiated with the server
-  logger: suppressedLogger,
-  printQRInTerminal: false,
-  browser: ['Chrome', 'Windows', '10.0'],
-  auth: state,
-  syncFullHistory: false,
-  downloadHistory: false,
-  markOnlineOnConnect: false,
-  getMessage: async () => undefined, // Don't load messages from store
-  generateHighQualityLinkPreview: false,
-  patchMessageBeforeSending: (msg) => msg,
-  transactionOpts: { maxCommitRetries: 1, delayBetweenTriesMs: 10 },
-  connectTimeoutMs: 20000,
-  keepAliveIntervalMs: 30000,
- });
+    version, // explicit WA Web version negotiated with the server
+    logger: suppressedLogger,
+    printQRInTerminal: false,
+    // Use a common desktop browser signature
+    browser: ['Chrome', 'Windows', '10.0'],
+    auth: state,
+    // Memory optimization: prevent loading old messages into RAM
+    syncFullHistory: false,
+    downloadHistory: false,
+    markOnlineOnConnect: false,
+    getMessage: async () => undefined // Don't load messages from store
+  });
+
   // Bind store to socket
   store.bind(sock.ev);
 
@@ -385,7 +383,7 @@ async function startBot() {
         const chatMsgs = store.messages.get(from);
         chatMsgs.set(msg.key.id, msg);
 
-        // Cleanup: Keep only last 10 per chat (reduced from 20)
+        // Cleanup: Keep only last 20 per chat (reduced from 200)
         if (chatMsgs.size > store.maxPerChat) {
           // Remove oldest messages
           const sortedIds = Array.from(chatMsgs.entries())
