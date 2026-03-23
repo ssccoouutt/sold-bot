@@ -16,7 +16,7 @@
         "baileys",
         "md"
     ],
-    "author": "Your Name",
+    "author": "Ruhvaan",
     "license": "MIT",
     "dependencies": {
         "@bochilteam/scraper": "^5.0.1",
