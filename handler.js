@@ -6,6 +6,7 @@ const config = require('./config');
 const database = require('./database');
 const { loadCommands } = require('./utils/commandLoader');
 const { addMessage } = require('./utils/groupstats');
+const { checkSlowMode } = require('./utils/slowMode');
 const { jidDecode, jidEncode } = require('@whiskeysockets/baileys');
 const fs = require('fs');
 const path = require('path');
@@ -470,6 +471,29 @@ const handleMessage = async (sock, msg) => {
     
     // Return early for non-group messages with no recognizable content
     if (!content || actualMessageTypes.length === 0) return;
+    
+    // Slow mode check (applies to all group messages with content)
+    if (isGroup && !msg.key.fromMe) {
+      try {
+        const groupSettings = database.getGroupSettings(from);
+        if (groupSettings.slowmode) {
+          const senderIsAdmin = await isAdmin(sock, sender, from, groupMetadata);
+          const senderIsOwner = isOwner(sender);
+          if (!senderIsAdmin && !senderIsOwner) {
+            const cooldownMs = (groupSettings.slowmodeCooldown || 30) * 1000;
+            const result = checkSlowMode(from, sender, cooldownMs);
+            if (result.onCooldown) {
+              await sock.sendMessage(from, {
+                text: `⏳ *Slow mode is active.*\nPlease wait *${result.remainingSecs}* more second${result.remainingSecs === 1 ? '' : 's'} before sending another message.`
+              }, { quoted: msg });
+              return;
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Error in slow mode check:', e);
+      }
+    }
     
     // 🔹 Button response should also check unwrapped content
     const btn = content.buttonsResponseMessage || msg.message?.buttonsResponseMessage;
