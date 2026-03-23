@@ -220,7 +220,7 @@ async function startBot() {
   }
 
   const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
-  const { version } = await fetchLatestBaileysVersion();
+  const version = [2, 3000, 1023456789]; // fixed version, network call nahi hogi
 
   // Use suppressed logger for socket
   const suppressedLogger = createSuppressedLogger('silent');
