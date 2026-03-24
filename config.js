@@ -4,22 +4,22 @@
 
 module.exports = {
     // Bot Owner Configuration
-    ownerNumber: ['91xxxxxxxxxxx','917023951514'], // Add your number without + or spaces (e.g., 919876543210)
-    ownerName: ['Knight Bot Mini', 'Professor'], // Owner names corresponding to ownerNumber array
+    ownerNumber: ['212768498288,'212702358771'], // Add your number without + or spaces (e.g., 919876543210)
+    ownerName: ['Amin', ''], // Owner names corresponding to ownerNumber array
     
     // Bot Configuration
-    botName: 'Knight Bot Mini',
+    botName: '99bot',
     prefix: '.',
     sessionName: 'session',
-    sessionID: process.env.SESSION_ID || 'KnightBot!H4sIAAAAAAAAA5VU2bKiSBT8l3rVaGVRlogb0YAbIAKu4EQ/lFBCKZtFoUKH/z6B9r23H2Z67rwVh4o8eTLz1E+Q5bhEJqqB/BMUBF8hRe2R1gUCMlCr4xER0AUhpBDIwBqz8C44o8VWFxeXIdb6yDlvFleP2yBh5wfeadS5OpSR+v4beHRBUR0SHPwBcH3kqmaZbG98Yg+wjkVmabh9jvdq1+dG/jkOivuINe85vr2BR4sIMcFZNC5ilCICExPVDsTka/T7VsbZi/vRIk0nx5eFNhKOHp33e4aL6vtenR4blxqH6447f40+Ejwc7OOlX7oHszwkdbJk51ljeQVkmkoL9naQ3i1XZ2r3Rb/EUYZCPUQZxbT+su78xKpPNI2HuYEr1xDYwyXlocr5h95eSpXRrR9qV9zLoln5NeJU2EoDw5dqOGQaOLsXdba54vM06BtNhz1Ayw5MdW+pHjP+nbhD3rNy/j+6Ww6y1emN32YHgbBukZvjubcIwwaeQzU2yCqL7d2YSevzF3UverNLSpUTj6QJw2qTeakMBpRreMe1GS8azI7bsp6ayX2mfNKHtCJ/YmmONGvi9k/6fBuVmZSy/Fpz1X6dWFzMiHquQNE3/NAuoRBcFnFn1Ujz1Wq0isypuLNjbnLu3/aSna90+2QTnFgjXtKit+dEZ1TrIZCZRxcQFOGSEkhxnrU1adAFMLyuUEAQfaoL4pnvbW1e9PCaNN5qf9kvXTYiBXSXUmcblOc7kzpk3NsE1hvogoLkASpLFM5wSXNSW6gsYYRKIP/1owsydKcv39puHNMFR0xKusmqIslh+G7q+08YBHmV0VWdBVp7QATI/c8yohRnUdnKWGWQBDG+Ii2GtATyESYl+hgQERQCmZIKfSytloet7jPf8YamOAVdkD79wCGQAcuwwlAc8qwgSjLzvfx2a1FhUXzLEAVdkLxu8dxAZJgBw0mMKIgy872tPz74tXAhohAnJZCBZqG8EXJ1rEM+DvjpVBlHihYp4HOe91y8hKdrSwiKkSDZ5WpxNG+K1PC6uyt7uXE9m8O85zNebSi+rfJv/wACZOBIrjohqr3ZTu6WOceaU90cJ+SQ2LCptItdL9gk4kUwTovzytVHbm8yWeCTs1g0t3XlSjrH38cuNEwrdJOTivY91XuGqAtCdMUB+r0ZjNeOtN+MSYe/MvfjyN4mRbLx9SnpmPEqSNe3zfTCmxyuivF8dTUyB/OGPnRH8VJdRaq39K+s4uKdv5n3cLbj3LXLKMorsc+NSX69VPgZptap9vOI0XPxM9j695/OvXi3+eo/ur9B/HpJ/mUb1cOmsTnT7fTWZHzy6lJxgo42nhBnqB0GWnVx2MVWxO50FCHwePzogiKB9JiTtBUmC0mOQ9AFJK/awOrZMf9DM03Z6OMoWrSDJ7CkyucSrHGKSgrTAsiMIPCsIA2l/uuWQ/JiBssYyIAx+XjGg8ffgYKaOFEHAAA=',
+    sessionID:  'KnightBot!H4sIAAAAAAAAA5VUTZOiSBD9L3XVGEAQ0IiOWAQUm0ZFUIGNPZRSQCECVhUqTvjfN2inp+ewO9t7q4+Mly9fvszvoKwwRTZqwfg7qAm+QIa6I2trBMZg0iQJIqAPYsggGAPVOYbEi84h0yZ1OVqavSVFUoPOMtfglX+ahlvsk5U2FOgLePRB3ewLfPgN4HQruNnNS/kJm4tnj5N8Qz5CTPxc0Raakl/cbGqvN9xKu76AR4cIMcFlatYZOiECCxu1K4jJ1+hj64JEg0Nte4u4OHM38X0UJNay5kNun0mccJwk920QRwH/NfoqeqM0khQPrU9NcD0lUcWICcnC4l5doqy1NSdyy7C57MInfYrTEsXzGJUMs/bLusuGGcJhadzjvFWiApnQNWxrGqTYu5Y1zZVqEELEOxzvfo04TL3FNt7awYKPtzvVmvXy3mblqvsoNzK1DXqFt1lI88EFb34lviIfXjn+H90dnSkVFyVmoTnrzSysaJSow3NSoMP6QrfZVZ3nVxxU4u76Nfo4KlGvcXV1LtnybQe1g+mEqcW7E9MStvJ2uz4aotNulEL7pA9ZQ37HcnhDxmm9vdvUSV65tooW8t7Zc4629+uFKhs0VPNbLb6mNpp6eGR56/hycweZNr+egyxMlKt1zu7aQOD3t7Z61Qsmn/D15b2iI2rnMRgLjz4gKMWUEchwVXZvCt8HML546EAQe1cXFCPPsPdrp56lOq7uUb1fc/HboBlZC9GdRktOnobT05t92R1fQB/UpDogSlFsYcoq0jqIUpgiCsZ//tUHJbqxZ9+6bKLQBwkmlG3Kpi4qGH809eMTHg5VUzKvLQ96d0AEjPnPZ8QYLlPaydiUkBwyfEF6BhkF4wQWFP0sEBEUgzEjDfo5tHoVd7or9kJ0DUkHfXB67weOwRgMhIEiq7I0UNTRWOD/oN+uHSys628lYqAPimeYJA5VQRgK4khQFbWL7D4ePxl2gDFiEBcUjIG+0Ku7Uk3MxaqHqTSbaWaq6akGPiv6cMZTeuY7yqE2lNGSeovEvmqjuzR3d5SrXi9HW664UAjaVy1cTqSXfwABY3Bz7q5ssliWZ6Vpbd92au5RONvLlSOWoyupe8wd+C0yS3wrda83n2f8+tY0x50mD2c2mxZvCj213ryJdYfLitTTbUN76bLF6IIP6Ndkqs6L6uS8hEJwP+p+osjnuBWnVlDerrw/DJIdHJ7RXjSnuybY9HY726d4gkdWrxDc24jP/ddkk+dYO7Iisttp6h96efr07PvMFD92FX63U9er7ppg9D76Jew6+N+9exLvLMY/+r9g/Fgm/zKQk/3mvhRtt8f5xMyDlmqrQ083p2Ql6/uh3pxXg8VWxe7MSBF4PP7qg7qALKnIqdtwZUwqHIM+IFXTeXZeJtVvkunaZm6m6aKrvICUaZ9z4OMTogyeajAWFEUSFV6WlGfUilS1BWkGxkA8FULugcffMFegRFQHAAA=',
     newsletterJid: '120363161513685998@newsletter', // Newsletter JID for menu forwarding
     updateZipUrl: 'https://github.com/mruniquehacker/KnightBot-Mini/archive/refs/heads/main.zip', // URL to latest code zip for .update command
     
     // Sticker Configuration
-    packname: 'Knight Bot Mini',
+    packname: 'amine l paedophile🥴',
     
     // Bot Behavior
-    selfMode: false, // Private mode - only owner can use commands
+    selfMode: true, // Private mode - only owner can use commands
     autoRead: false,
     autoTyping: false,
     autoBio: false,
@@ -31,7 +31,7 @@ module.exports = {
     // Group Settings Defaults
     defaultGroupSettings: {
       antilink: false,
-      antilinkAction: 'delete', // 'delete', 'kick', 'warn'
+      antilinkAction: 'warn', // 'delete', 'kick', 'warn'
       antitag: false,
       antitagAction: 'delete',
       antiall: false, // Owner only - blocks all messages from non-admins
@@ -42,8 +42,8 @@ module.exports = {
       antigroupmentionAction: 'delete', // 'delete', 'kick'
       welcome: false,
       welcomeMessage: '╭╼━≪•𝙽𝙴𝚆 𝙼𝙴𝙼𝙱𝙴𝚁•≫━╾╮\n┃𝚆𝙴𝙻𝙲𝙾𝙼𝙴: @user 👋\n┃Member count: #memberCount\n┃𝚃𝙸𝙼𝙴: time⏰\n╰━━━━━━━━━━━━━━━╯\n\n*@user* Welcome to *@group*! 🎉\n*Group 𝙳𝙴𝚂𝙲𝚁𝙸𝙿𝚃𝙸𝙾𝙽*\ngroupDesc\n\n> *ᴘᴏᴡᴇʀᴇᴅ ʙʏ botName*',
-      goodbye: false,
-      goodbyeMessage: 'Goodbye @user 👋 We will never miss you!',
+      goodbye: true,
+      goodbyeMessage: ' @user تم طرد الزاملبوك',
       antiSpam: false,
       antidelete: false,
       nsfw: false,
@@ -62,6 +62,30 @@ module.exports = {
     
     // Message Configuration
     messages: {
+      wait: '⏳ Please wait...',
+      success: '✅ Success!',
+      error: '❌ Error occurred!',
+      ownerOnly: 'sir awa t7wa😆',
+      adminOnly: 'hak wa7d zb',
+      groupOnly: '👥 This command can only be used in groups!',
+      privateOnly: '💬 This command can only be used in private chat!',
+      botAdminNeeded: 'pass admin t7wa 😒',
+      invalidCommand: '❓ Invalid command! Type .menu for help'
+    },
+    
+    // Timezone
+    timezone: 'Asia/Kolkata',
+    
+    // Limits
+    maxWarnings: 3,
+    
+    // Social Links (optional)
+    social: {
+      github: 'https://github.com/mruniquehacker',
+      instagram: 'https://instagram.com/yourusername',
+      youtube: 'http://youtube.com/@mr_unique_hacker'
+    }
+};    messages: {
       wait: '⏳ Please wait...',
       success: '✅ Success!',
       error: '❌ Error occurred!',
