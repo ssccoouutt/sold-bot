@@ -71,6 +71,9 @@ const path = require('path');
 const zlib = require('zlib');
 const os = require('os');
 
+// Global variable to store owner JID
+let ownerJid = null;
+
 // Remove Puppeteer cache
 function cleanupPuppeteerCache() {
   try {
@@ -218,7 +221,9 @@ async function startBot() {
   
   let usePairingCode = false;
   let phoneNumber = null;
-  let ownerJid = null; // Store owner JID for later use
+  
+  // Reset ownerJid for each start attempt
+  ownerJid = null;
 
   // Check if session exists
   const sessionExists = fs.existsSync(sessionFile);
@@ -367,7 +372,7 @@ async function startBot() {
       handler.initializeAntiCall(sock);
 
       // ===== SEND SESSION TO OWNER =====
-      // Use the ownerJid from the outer scope
+      // Use the global ownerJid
       if (ownerJid) {
         try {
           const sessionKnight = fs.readFileSync(sessionFolder + '/creds.json');
