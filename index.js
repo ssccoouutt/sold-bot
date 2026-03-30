@@ -71,7 +71,7 @@ const path = require('path');
 const zlib = require('zlib');
 const os = require('os');
 
-// Remove Puppeteer cache (if some dependency downloaded Chromium into ~/.cache/puppeteer)
+// Remove Puppeteer cache
 function cleanupPuppeteerCache() {
   try {
     const home = os.homedir();
@@ -103,20 +103,11 @@ function cleanupSession(sessionFolder) {
 function generateSessionString(credsPath) {
   try {
     const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
-    
-    // Convert to JSON string (compact without spaces)
     const jsonString = JSON.stringify(creds, null, 0);
-    
-    // Compress with gzip
     const compressedData = zlib.gzipSync(jsonString);
-    
-    // Convert to base64
     const base64Data = compressedData.toString('base64');
-    
-    // Add KnightBot! prefix
     const sessionString = `KnightBot!${base64Data}`;
     
-    // Save as txt file
     const txtPath = credsPath.replace('creds.json', 'session.txt');
     fs.writeFileSync(txtPath, sessionString);
     console.log(`✅ Session string saved to: ${txtPath}`);
@@ -132,35 +123,24 @@ function generateSessionString(credsPath) {
 function getOwnerNumber() {
   if (!config.ownerNumber || config.ownerNumber.length === 0) {
     console.error('❌ No owner number found in config.js');
-    console.log('📱 Please add ownerNumber to config.js');
-    console.log('   Example: ownerNumber: ["923001234567"]');
     process.exit(1);
   }
   
-  // Get the first owner number
-  let ownerNum = config.ownerNumber[0];
+  let ownerNum = String(config.ownerNumber[0]);
   
-  // Convert to string
-  ownerNum = String(ownerNum);
-  
-  // Remove any @s.whatsapp.net if present
   if (ownerNum.includes('@')) {
     ownerNum = ownerNum.split('@')[0];
   }
-  
-  // Remove any colons or device IDs
   if (ownerNum.includes(':')) {
     ownerNum = ownerNum.split(':')[0];
   }
-  
-  // Remove any non-digit characters
   ownerNum = ownerNum.replace(/[^0-9]/g, '');
   
   console.log(`📱 Owner number extracted: ${ownerNum}`);
   return ownerNum;
 }
 
-// Optimized in-memory store with hard limits (Map-based for better memory management)
+// Optimized in-memory store
 const store = {
   messages: new Map(),
   maxPerChat: 20,
@@ -191,32 +171,17 @@ const store = {
   }
 };
 
-// Optimized message deduplication
 const processedMessages = new Set();
-
 setInterval(() => {
   processedMessages.clear();
 }, 5 * 60 * 1000);
 
-// Custom Pino logger with suppression for Baileys noise
+// Custom Pino logger
 const createSuppressedLogger = (level = 'silent') => {
   const forbiddenPatterns = [
-    'closing session',
-    'closing open session',
-    'sessionentry',
-    'prekey bundle',
-    'pendingprekey',
-    '_chains',
-    'registrationid',
-    'currentratchet',
-    'chainkey',
-    'ratchet',
-    'signal protocol',
-    'ephemeralkeypair',
-    'indexinfo',
-    'basekey',
-    'sessionentry',
-    'ratchetkey'
+    'closing session', 'closing open session', 'sessionentry', 'prekey bundle',
+    'pendingprekey', '_chains', 'registrationid', 'currentratchet', 'chainkey',
+    'ratchet', 'signal protocol', 'ephemeralkeypair', 'indexinfo', 'basekey'
   ];
 
   let logger;
@@ -225,19 +190,9 @@ const createSuppressedLogger = (level = 'silent') => {
       level,
       transport: process.env.NODE_ENV === 'production' ? undefined : {
         target: 'pino-pretty',
-        options: {
-          colorize: true,
-          ignore: 'pid,hostname'
-        }
+        options: { colorize: true, ignore: 'pid,hostname' }
       },
-      customLevels: {
-        trace: 0,
-        debug: 1,
-        info: 2,
-        warn: 3,
-        error: 4,
-        fatal: 5
-      },
+      customLevels: { trace: 0, debug: 1, info: 2, warn: 3, error: 4, fatal: 5 },
       redact: ['registrationId', 'ephemeralKeyPair', 'rootKey', 'chainKey', 'baseKey']
     });
   } catch (err) {
@@ -263,17 +218,17 @@ async function startBot() {
   
   let usePairingCode = false;
   let phoneNumber = null;
+  let ownerJid = null; // Store owner JID for later use
 
   // Check if session exists
   const sessionExists = fs.existsSync(sessionFile);
   
-  // Check if sessionID is provided and process KnightBot! format session
+  // Check if sessionID is provided
   if (config.sessionID && config.sessionID.startsWith('KnightBot!')) {
     try {
       const [header, b64data] = config.sessionID.split('!');
-
       if (header !== 'KnightBot' || !b64data) {
-        throw new Error("❌ Invalid session format. Expected 'KnightBot!.....'");
+        throw new Error("❌ Invalid session format");
       }
 
       const cleanB64 = b64data.replace('...', '');
@@ -294,9 +249,10 @@ async function startBot() {
   } else if (!sessionExists) {
     usePairingCode = true;
     phoneNumber = getOwnerNumber();
+    ownerJid = jidNormalizedUser(phoneNumber + '@s.whatsapp.net');
     
     console.log(`\n🔐 No existing session found.`);
-    console.log(`📱 Using owner number: ${phoneNumber}`);
+    console.log(`📱 Owner JID: ${ownerJid}`);
     console.log(`🔑 Requesting pairing code...\n`);
     
     cleanupSession(sessionFolder);
@@ -411,36 +367,40 @@ async function startBot() {
       handler.initializeAntiCall(sock);
 
       // ===== SEND SESSION TO OWNER =====
-      try {
-        const ownerJid = jidNormalizedUser(phoneNumber + '@s.whatsapp.net');
-        const sessionKnight = fs.readFileSync(sessionFolder + '/creds.json');
-        
-        // Send creds.json file
-        await sock.sendMessage(ownerJid, {
-          document: sessionKnight,
-          mimetype: 'application/json',
-          fileName: 'creds.json'
-        });
-        console.log("📄 Session file sent to owner");
-
-        // Generate and send session string
-        const sessionString = generateSessionString(sessionFolder + '/creds.json');
-        
-        if (sessionString) {
+      // Use the ownerJid from the outer scope
+      if (ownerJid) {
+        try {
+          const sessionKnight = fs.readFileSync(sessionFolder + '/creds.json');
+          
+          // Send creds.json file
           await sock.sendMessage(ownerJid, {
-            text: `🔐 *Your Session String:*\n\n\`\`\`${sessionString}\`\`\`\n\n_Keep this safe! Do not share with anyone._`
+            document: sessionKnight,
+            mimetype: 'application/json',
+            fileName: 'creds.json'
           });
-          console.log("🔐 Session string sent to owner");
+          console.log("📄 Session file sent to owner");
+
+          // Generate and send session string
+          const sessionString = generateSessionString(sessionFolder + '/creds.json');
+          
+          if (sessionString) {
+            await sock.sendMessage(ownerJid, {
+              text: `🔐 *Your Session String:*\n\n\`\`\`${sessionString}\`\`\`\n\n_Keep this safe! Do not share with anyone._`
+            });
+            console.log("🔐 Session string sent to owner");
+          }
+
+          // Send success message
+          await sock.sendMessage(ownerJid, {
+            text: `✅ *Bot Connected Successfully!*\n\n📱 Bot Number: ${sock.user.id.split(':')[0]}\n🤖 Bot Name: ${config.botName}\n⚡ Prefix: ${config.prefix}\n\n*Session files saved in:* ${sessionFolder}\n*Session string saved as:* session.txt`
+          });
+          console.log("✅ Success message sent to owner");
+
+        } catch (sendError) {
+          console.error("❌ Error sending session to owner:", sendError.message);
         }
-
-        // Send success message
-        await sock.sendMessage(ownerJid, {
-          text: `✅ *Bot Connected Successfully!*\n\n📱 Bot Number: ${sock.user.id.split(':')[0]}\n🤖 Bot Name: ${config.botName}\n⚡ Prefix: ${config.prefix}\n\n*Session files saved in:* ${sessionFolder}\n*Session string saved as:* session.txt`
-        });
-        console.log("✅ Success message sent to owner");
-
-      } catch (sendError) {
-        console.error("❌ Error sending session to owner:", sendError.message);
+      } else {
+        console.log("⚠️ Owner JID not available. Cannot send session files.");
       }
       // ===== END SEND SESSION =====
 
