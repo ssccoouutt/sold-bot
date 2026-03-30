@@ -4,19 +4,18 @@
 
 module.exports = {
     // Bot Owner Configuration
-    ownerNumber: ['923190779215'], // Add your number without + or spaces (e.g., 919876543210)
-    ownerName: ['Anonymoud'], // Owner names corresponding to ownerNumber array
+    ownerNumber: ['923401809397'], // Add your number without + or spaces (e.g., 919876543210)
+    ownerName: ['Anonymous'], // Owner names corresponding to ownerNumber array
     
     // Bot Configuration
     botName: 'Knight Bot Mini',
     prefix: '.',
     sessionName: 'session',
-    sessionID: process.env.SESSION_ID || '',
-    newsletterJid: '120363161513685998@newsletter', // Newsletter JID for menu forwarding
-    updateZipUrl: 'https://github.com/mruniquehacker/KnightBot-Mini/archive/refs/heads/main.zip', // URL to latest code zip for .update command
+    sessionID: '',
+    newsletterJid: '120363304414452603@newsletter', // Newsletter JID for menu forwarding
     
     // Sticker Configuration
-    packname: 'Knight Bot Mini',
+    packname: 'Tech Zone',
     
     // Bot Behavior
     selfMode: false, // Private mode - only owner can use commands
@@ -78,12 +77,6 @@ module.exports = {
     
     // Limits
     maxWarnings: 3,
-    
-    // Social Links (optional)
-    social: {
-      github: 'https://github.com/mruniquehacker',
-      instagram: 'https://instagram.com/yourusername',
-      youtube: 'http://youtube.com/@mr_unique_hacker'
-    }
+}
 };
   
