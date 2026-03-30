@@ -77,6 +77,5 @@ module.exports = {
     
     // Limits
     maxWarnings: 3,
-}
 };
   
