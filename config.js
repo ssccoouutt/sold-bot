@@ -8,7 +8,7 @@ module.exports = {
     ownerName: ['Anonymous'], // Owner names corresponding to ownerNumber array
     
     // Bot Configuration
-    botName: 'Knight Bot Mini',
+    botName: 'Tech Zone',
     prefix: '.',
     sessionName: 'session',
     sessionID: '',
