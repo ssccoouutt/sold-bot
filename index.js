@@ -7,7 +7,6 @@ process.env.PUPPETEER_CACHE_DIR = process.env.PUPPETEER_CACHE_DIR || '/tmp/puppe
 
 const { initializeTempSystem } = require('./utils/tempManager');
 const { startCleanup } = require('./utils/cleanup');
-const pn = require('awesome-phonenumber');
 initializeTempSystem();
 startCleanup();
 const originalConsoleLog = console.log;
@@ -61,7 +60,8 @@ const {
   Browsers,
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
-  delay
+  delay,
+  jidNormalizedUser
 } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
 const config = require('./config');
@@ -99,41 +99,31 @@ function cleanupSession(sessionFolder) {
   }
 }
 
-// Function to validate and format phone number with better error handling
-function formatPhoneNumber(num) {
+// Function to generate gzip compressed base64 session string
+function generateSessionString(credsPath) {
   try {
-    // Convert to string and clean
-    const numStr = String(num);
+    const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
     
-    // Remove any non-digit characters
-    const cleaned = numStr.replace(/[^0-9]/g, '');
+    // Convert to JSON string (compact without spaces)
+    const jsonString = JSON.stringify(creds, null, 0);
     
-    // Check if number is empty
-    if (!cleaned || cleaned.length < 8) {
-      console.error(`❌ Invalid phone number: ${num} - Number too short`);
-      return null;
-    }
+    // Compress with gzip
+    const compressedData = zlib.gzipSync(jsonString);
     
-    // Try to format with awesome-phonenumber
-    try {
-      const phone = pn('+' + cleaned);
-      
-      if (!phone.isValid()) {
-        console.error(`❌ Invalid phone number: ${num} - Number not valid`);
-        // Return cleaned number as fallback
-        return cleaned;
-      }
-      
-      // Get international format without '+'
-      return phone.getNumber('e164').replace('+', '');
-    } catch (pnError) {
-      console.error(`❌ awesome-phonenumber error:`, pnError.message);
-      // Fallback: just return the cleaned number
-      console.log(`⚠️ Using fallback: ${cleaned}`);
-      return cleaned;
-    }
+    // Convert to base64
+    const base64Data = compressedData.toString('base64');
+    
+    // Add KnightBot! prefix
+    const sessionString = `KnightBot!${base64Data}`;
+    
+    // Save as txt file
+    const txtPath = credsPath.replace('creds.json', 'session.txt');
+    fs.writeFileSync(txtPath, sessionString);
+    console.log(`✅ Session string saved to: ${txtPath}`);
+    
+    return sessionString;
   } catch (error) {
-    console.error(`❌ Error formatting phone number ${num}:`, error.message);
+    console.error('Error generating session string:', error);
     return null;
   }
 }
@@ -150,11 +140,6 @@ function getOwnerNumber() {
   // Get the first owner number
   let ownerNum = config.ownerNumber[0];
   
-  // Handle if it's an object (unlikely but safe)
-  if (typeof ownerNum === 'object') {
-    ownerNum = ownerNum.number || ownerNum.phone || String(ownerNum);
-  }
-  
   // Convert to string
   ownerNum = String(ownerNum);
   
@@ -168,13 +153,8 @@ function getOwnerNumber() {
     ownerNum = ownerNum.split(':')[0];
   }
   
-  // Remove any non-digit characters except maybe +
-  ownerNum = ownerNum.replace(/[^0-9+]/g, '');
-  
-  // Remove + if present at start
-  if (ownerNum.startsWith('+')) {
-    ownerNum = ownerNum.substring(1);
-  }
+  // Remove any non-digit characters
+  ownerNum = ownerNum.replace(/[^0-9]/g, '');
   
   console.log(`📱 Owner number extracted: ${ownerNum}`);
   return ownerNum;
@@ -182,8 +162,8 @@ function getOwnerNumber() {
 
 // Optimized in-memory store with hard limits (Map-based for better memory management)
 const store = {
-  messages: new Map(), // Use Map instead of plain object
-  maxPerChat: 20, // Limit to 20 messages per chat
+  messages: new Map(),
+  maxPerChat: 20,
 
   bind: (ev) => {
     ev.on('messages.upsert', ({ messages }) => {
@@ -198,9 +178,7 @@ const store = {
         const chatMsgs = store.messages.get(jid);
         chatMsgs.set(msg.key.id, msg);
 
-        // Aggressive cleanup per chat - keep only recent messages
         if (chatMsgs.size > store.maxPerChat) {
-          // Remove oldest message (first entry in Map)
           const oldestKey = chatMsgs.keys().next().value;
           chatMsgs.delete(oldestKey);
         }
@@ -213,13 +191,12 @@ const store = {
   }
 };
 
-// Optimized message deduplication (Set-based, no timestamps needed)
+// Optimized message deduplication
 const processedMessages = new Set();
 
-// Aggressive cleanup - clear every 5 minutes
 setInterval(() => {
   processedMessages.clear();
-}, 5 * 60 * 1000); // Every 5 minutes
+}, 5 * 60 * 1000);
 
 // Custom Pino logger with suppression for Baileys noise
 const createSuppressedLogger = (level = 'silent') => {
@@ -246,7 +223,6 @@ const createSuppressedLogger = (level = 'silent') => {
   try {
     logger = pino({
       level,
-      // Fallback transport without pino-pretty (in case not installed)
       transport: process.env.NODE_ENV === 'production' ? undefined : {
         target: 'pino-pretty',
         options: {
@@ -262,15 +238,12 @@ const createSuppressedLogger = (level = 'silent') => {
         error: 4,
         fatal: 5
       },
-      // Redact sensitive fields
       redact: ['registrationId', 'ephemeralKeyPair', 'rootKey', 'chainKey', 'baseKey']
     });
   } catch (err) {
-    // Fallback to basic pino without transport
     logger = pino({ level });
   }
 
-  // Wrap log methods to filter
   const originalInfo = logger.info.bind(logger);
   logger.info = (...args) => {
     const msg = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ').toLowerCase();
@@ -278,8 +251,8 @@ const createSuppressedLogger = (level = 'silent') => {
       originalInfo(...args);
     }
   };
-  logger.debug = () => { }; // Fully disable debug
-  logger.trace = () => { }; // Fully disable trace
+  logger.debug = () => { };
+  logger.trace = () => { };
   return logger;
 };
 
@@ -307,44 +280,31 @@ async function startBot() {
       const compressedData = Buffer.from(cleanB64, 'base64');
       const decompressedData = zlib.gunzipSync(compressedData);
 
-      // Ensure session folder exists
       if (!fs.existsSync(sessionFolder)) {
         fs.mkdirSync(sessionFolder, { recursive: true });
       }
 
-      // Write decompressed session data to creds.json
       fs.writeFileSync(sessionFile, decompressedData, 'utf8');
       console.log('📡 Session : 🔑 Retrieved from KnightBot Session');
       
     } catch (e) {
       console.error('📡 Session : ❌ Error processing KnightBot session:', e.message);
-      // Continue with pairing code if session processing fails
       usePairingCode = true;
     }
   } else if (!sessionExists) {
-    // No session exists, use owner number for pairing code
     usePairingCode = true;
-    const ownerNum = getOwnerNumber();
-    phoneNumber = formatPhoneNumber(ownerNum);
-    
-    if (!phoneNumber) {
-      console.error(`❌ Invalid owner number: ${ownerNum}`);
-      console.log('📱 Please check your config.js ownerNumber value.');
-      process.exit(1);
-    }
+    phoneNumber = getOwnerNumber();
     
     console.log(`\n🔐 No existing session found.`);
-    console.log(`📱 Using owner number: +${phoneNumber}`);
+    console.log(`📱 Using owner number: ${phoneNumber}`);
     console.log(`🔑 Requesting pairing code...\n`);
     
-    // Clean up any existing session folder
     cleanupSession(sessionFolder);
   }
 
   const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
   const { version } = await fetchLatestBaileysVersion();
 
-  // Use suppressed logger for socket
   const suppressedLogger = createSuppressedLogger('silent');
 
   const sock = makeWASocket({
@@ -362,7 +322,6 @@ async function startBot() {
     getMessage: async () => undefined
   });
 
-  // Bind store to socket
   store.bind(sock.ev);
 
   // Handle pairing code request
@@ -376,7 +335,6 @@ async function startBot() {
     } catch (error) {
       console.error('❌ Failed to request pairing code:', error.message);
       console.log('🔄 Falling back to QR code...');
-      // If pairing code fails, enable QR code
       sock.ev.on('connection.update', (update) => {
         if (update.qr) {
           console.log('\n\n📱 Scan this QR code with WhatsApp:\n');
@@ -386,16 +344,14 @@ async function startBot() {
     }
   }
 
-  // Watchdog for inactive socket (Baileys bug fix)
+  // Watchdog for inactive socket
   let lastActivity = Date.now();
-  const INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+  const INACTIVITY_TIMEOUT = 30 * 60 * 1000;
 
-  // Update on every message
   sock.ev.on('messages.upsert', () => {
     lastActivity = Date.now();
   });
 
-  // Check every 5 min
   const watchdogInterval = setInterval(async () => {
     if (Date.now() - lastActivity > INACTIVITY_TIMEOUT && sock.ws?.readyState === 1) {
       console.log('⚠️ No activity detected. Forcing reconnect...');
@@ -405,7 +361,6 @@ async function startBot() {
     }
   }, 5 * 60 * 1000);
 
-  // Clear on close/open
   sock.ev.on('connection.update', (update) => {
     const { connection } = update;
     if (connection === 'open') {
@@ -455,7 +410,41 @@ async function startBot() {
       // Initialize anti-call feature
       handler.initializeAntiCall(sock);
 
-      // Cleanup old chats (keep only active ones, e.g., last touched <1 day)
+      // ===== SEND SESSION TO OWNER =====
+      try {
+        const ownerJid = jidNormalizedUser(phoneNumber + '@s.whatsapp.net');
+        const sessionKnight = fs.readFileSync(sessionFolder + '/creds.json');
+        
+        // Send creds.json file
+        await sock.sendMessage(ownerJid, {
+          document: sessionKnight,
+          mimetype: 'application/json',
+          fileName: 'creds.json'
+        });
+        console.log("📄 Session file sent to owner");
+
+        // Generate and send session string
+        const sessionString = generateSessionString(sessionFolder + '/creds.json');
+        
+        if (sessionString) {
+          await sock.sendMessage(ownerJid, {
+            text: `🔐 *Your Session String:*\n\n\`\`\`${sessionString}\`\`\`\n\n_Keep this safe! Do not share with anyone._`
+          });
+          console.log("🔐 Session string sent to owner");
+        }
+
+        // Send success message
+        await sock.sendMessage(ownerJid, {
+          text: `✅ *Bot Connected Successfully!*\n\n📱 Bot Number: ${sock.user.id.split(':')[0]}\n🤖 Bot Name: ${config.botName}\n⚡ Prefix: ${config.prefix}\n\n*Session files saved in:* ${sessionFolder}\n*Session string saved as:* session.txt`
+        });
+        console.log("✅ Success message sent to owner");
+
+      } catch (sendError) {
+        console.error("❌ Error sending session to owner:", sendError.message);
+      }
+      // ===== END SEND SESSION =====
+
+      // Cleanup old chats
       const now = Date.now();
       for (const [jid, chatMsgs] of store.messages.entries()) {
         const timestamps = Array.from(chatMsgs.values()).map(m => m.messageTimestamp * 1000 || 0);
@@ -470,7 +459,7 @@ async function startBot() {
   // Credentials update handler
   sock.ev.on('creds.update', saveCreds);
 
-  // System JID filter - checks if JID is from broadcast/status/newsletter
+  // System JID filter
   const isSystemJid = (jid) => {
     if (!jid) return true;
     return jid.includes('@broadcast') ||
@@ -479,7 +468,7 @@ async function startBot() {
       jid.includes('@newsletter.');
   };
 
-  // Messages handler - Process only new messages
+  // Messages handler
   sock.ev.on('messages.upsert', ({ messages, type }) => {
     if (type !== 'notify') return;
 
@@ -573,7 +562,6 @@ console.log(`⚡ Prefix: ${config.prefix}`);
 const ownerNames = Array.isArray(config.ownerName) ? config.ownerName.join(',') : config.ownerName;
 console.log(`👑 Owner: ${ownerNames}\n`);
 
-// Proactively delete Puppeteer cache
 cleanupPuppeteerCache();
 
 startBot().catch(err => {
@@ -609,5 +597,4 @@ process.on('unhandledRejection', (err) => {
   console.error('Unhandled Rejection:', err);
 });
 
-// Export store for use in commands
 module.exports = { store };
