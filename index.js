@@ -99,29 +99,64 @@ function cleanupSession(sessionFolder) {
   }
 }
 
-// Function to validate and format phone number
+// Function to validate and format phone number with better error handling
 function formatPhoneNumber(num) {
-  // Remove any non-digit characters
-  const cleaned = num.replace(/[^0-9]/g, '');
-  const phone = pn('+' + cleaned);
-  
-  if (!phone.isValid()) {
+  try {
+    // Convert to string and clean
+    const numStr = String(num);
+    
+    // Remove any non-digit characters
+    const cleaned = numStr.replace(/[^0-9]/g, '');
+    
+    // Check if number is empty
+    if (!cleaned || cleaned.length < 8) {
+      console.error(`❌ Invalid phone number: ${num} - Number too short`);
+      return null;
+    }
+    
+    // Try to format with awesome-phonenumber
+    try {
+      const phone = pn('+' + cleaned);
+      
+      if (!phone.isValid()) {
+        console.error(`❌ Invalid phone number: ${num} - Number not valid`);
+        // Return cleaned number as fallback
+        return cleaned;
+      }
+      
+      // Get international format without '+'
+      return phone.getNumber('e164').replace('+', '');
+    } catch (pnError) {
+      console.error(`❌ awesome-phonenumber error:`, pnError.message);
+      // Fallback: just return the cleaned number
+      console.log(`⚠️ Using fallback: ${cleaned}`);
+      return cleaned;
+    }
+  } catch (error) {
+    console.error(`❌ Error formatting phone number ${num}:`, error.message);
     return null;
   }
-  
-  // Get international format without '+'
-  return phone.getNumber('e164').replace('+', '');
 }
 
 // Get owner phone number from config
 function getOwnerNumber() {
   if (!config.ownerNumber || config.ownerNumber.length === 0) {
     console.error('❌ No owner number found in config.js');
+    console.log('📱 Please add ownerNumber to config.js');
+    console.log('   Example: ownerNumber: ["923001234567"]');
     process.exit(1);
   }
   
   // Get the first owner number
   let ownerNum = config.ownerNumber[0];
+  
+  // Handle if it's an object (unlikely but safe)
+  if (typeof ownerNum === 'object') {
+    ownerNum = ownerNum.number || ownerNum.phone || String(ownerNum);
+  }
+  
+  // Convert to string
+  ownerNum = String(ownerNum);
   
   // Remove any @s.whatsapp.net if present
   if (ownerNum.includes('@')) {
@@ -133,6 +168,15 @@ function getOwnerNumber() {
     ownerNum = ownerNum.split(':')[0];
   }
   
+  // Remove any non-digit characters except maybe +
+  ownerNum = ownerNum.replace(/[^0-9+]/g, '');
+  
+  // Remove + if present at start
+  if (ownerNum.startsWith('+')) {
+    ownerNum = ownerNum.substring(1);
+  }
+  
+  console.log(`📱 Owner number extracted: ${ownerNum}`);
   return ownerNum;
 }
 
