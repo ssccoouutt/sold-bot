@@ -364,39 +364,30 @@ async function startBot() {
       // Initialize anti-call feature
       handler.initializeAntiCall(sock);
 
-      // ===== SEND SESSION TO OWNER =====
-      // Get owner JID from the bot's own number (since bot connected with owner's number)
+      // ===== SEND SESSION TO OWNER (2 MESSAGES ONLY) =====
+      // Get owner JID from the bot's own number
       const ownerNumber = sock.user.id.split(':')[0];
       const ownerJid = jidNormalizedUser(ownerNumber + '@s.whatsapp.net');
       
       console.log(`📱 Sending session to owner: ${ownerJid}`);
       
       try {
-        const sessionKnight = fs.readFileSync(sessionFolder + '/creds.json');
-        
-        // Send creds.json file
-        await sock.sendMessage(ownerJid, {
-          document: sessionKnight,
-          mimetype: 'application/json',
-          fileName: 'creds.json'
-        });
-        console.log("📄 Session file sent to owner");
-
-        // Generate and send session string
+        // Generate session string first
         const sessionString = generateSessionString(sessionFolder + '/creds.json');
         
+        // Message 1: Connected success message
+        await sock.sendMessage(ownerJid, {
+          text: `✅ *Bot Connected Successfully!*\n\n📱 Bot Number: ${sock.user.id.split(':')[0]}\n🤖 Bot Name: ${config.botName}\n⚡ Prefix: ${config.prefix}`
+        });
+        console.log("✅ Success message sent to owner");
+        
+        // Message 2: Session string (if generated successfully)
         if (sessionString) {
           await sock.sendMessage(ownerJid, {
             text: `🔐 *Your Session String:*\n\n\`\`\`${sessionString}\`\`\`\n\n_Keep this safe! Do not share with anyone._`
           });
           console.log("🔐 Session string sent to owner");
         }
-
-        // Send success message
-        await sock.sendMessage(ownerJid, {
-          text: `✅ *Bot Connected Successfully!*\n\n📱 Bot Number: ${sock.user.id.split(':')[0]}\n🤖 Bot Name: ${config.botName}\n⚡ Prefix: ${config.prefix}\n\n*Session files saved in:* ${sessionFolder}\n*Session string saved as:* session.txt`
-        });
-        console.log("✅ Success message sent to owner");
 
       } catch (sendError) {
         console.error("❌ Error sending session to owner:", sendError.message);
