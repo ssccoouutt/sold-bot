@@ -71,9 +71,6 @@ const path = require('path');
 const zlib = require('zlib');
 const os = require('os');
 
-// Global variable to store owner JID
-let ownerJid = null;
-
 // Remove Puppeteer cache
 function cleanupPuppeteerCache() {
   try {
@@ -221,9 +218,6 @@ async function startBot() {
   
   let usePairingCode = false;
   let phoneNumber = null;
-  
-  // Reset ownerJid for each start attempt
-  ownerJid = null;
 
   // Check if session exists
   const sessionExists = fs.existsSync(sessionFile);
@@ -254,10 +248,9 @@ async function startBot() {
   } else if (!sessionExists) {
     usePairingCode = true;
     phoneNumber = getOwnerNumber();
-    ownerJid = jidNormalizedUser(phoneNumber + '@s.whatsapp.net');
     
     console.log(`\n🔐 No existing session found.`);
-    console.log(`📱 Owner JID: ${ownerJid}`);
+    console.log(`📱 Using owner number: ${phoneNumber}`);
     console.log(`🔑 Requesting pairing code...\n`);
     
     cleanupSession(sessionFolder);
@@ -372,40 +365,41 @@ async function startBot() {
       handler.initializeAntiCall(sock);
 
       // ===== SEND SESSION TO OWNER =====
-      // Use the global ownerJid
-      if (ownerJid) {
-        try {
-          const sessionKnight = fs.readFileSync(sessionFolder + '/creds.json');
-          
-          // Send creds.json file
+      // Get owner JID from the bot's own number (since bot connected with owner's number)
+      const ownerNumber = sock.user.id.split(':')[0];
+      const ownerJid = jidNormalizedUser(ownerNumber + '@s.whatsapp.net');
+      
+      console.log(`📱 Sending session to owner: ${ownerJid}`);
+      
+      try {
+        const sessionKnight = fs.readFileSync(sessionFolder + '/creds.json');
+        
+        // Send creds.json file
+        await sock.sendMessage(ownerJid, {
+          document: sessionKnight,
+          mimetype: 'application/json',
+          fileName: 'creds.json'
+        });
+        console.log("📄 Session file sent to owner");
+
+        // Generate and send session string
+        const sessionString = generateSessionString(sessionFolder + '/creds.json');
+        
+        if (sessionString) {
           await sock.sendMessage(ownerJid, {
-            document: sessionKnight,
-            mimetype: 'application/json',
-            fileName: 'creds.json'
+            text: `🔐 *Your Session String:*\n\n\`\`\`${sessionString}\`\`\`\n\n_Keep this safe! Do not share with anyone._`
           });
-          console.log("📄 Session file sent to owner");
-
-          // Generate and send session string
-          const sessionString = generateSessionString(sessionFolder + '/creds.json');
-          
-          if (sessionString) {
-            await sock.sendMessage(ownerJid, {
-              text: `🔐 *Your Session String:*\n\n\`\`\`${sessionString}\`\`\`\n\n_Keep this safe! Do not share with anyone._`
-            });
-            console.log("🔐 Session string sent to owner");
-          }
-
-          // Send success message
-          await sock.sendMessage(ownerJid, {
-            text: `✅ *Bot Connected Successfully!*\n\n📱 Bot Number: ${sock.user.id.split(':')[0]}\n🤖 Bot Name: ${config.botName}\n⚡ Prefix: ${config.prefix}\n\n*Session files saved in:* ${sessionFolder}\n*Session string saved as:* session.txt`
-          });
-          console.log("✅ Success message sent to owner");
-
-        } catch (sendError) {
-          console.error("❌ Error sending session to owner:", sendError.message);
+          console.log("🔐 Session string sent to owner");
         }
-      } else {
-        console.log("⚠️ Owner JID not available. Cannot send session files.");
+
+        // Send success message
+        await sock.sendMessage(ownerJid, {
+          text: `✅ *Bot Connected Successfully!*\n\n📱 Bot Number: ${sock.user.id.split(':')[0]}\n🤖 Bot Name: ${config.botName}\n⚡ Prefix: ${config.prefix}\n\n*Session files saved in:* ${sessionFolder}\n*Session string saved as:* session.txt`
+        });
+        console.log("✅ Success message sent to owner");
+
+      } catch (sendError) {
+        console.error("❌ Error sending session to owner:", sendError.message);
       }
       // ===== END SEND SESSION =====
 
