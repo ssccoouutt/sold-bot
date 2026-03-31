@@ -7,7 +7,8 @@
     "scripts": {
         "start": "node index.js",
         "dev": "nodemon index.js",
-        "install:no-puppeteer": "PUPPETEER_SKIP_DOWNLOAD=true PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true npm install"
+        "install:no-puppeteer": "PUPPETEER_SKIP_DOWNLOAD=true PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true npm install",
+        "postinstall": "npx playwright install chromium"
     },
     "keywords": [
         "whatsapp bot",
