@@ -9,7 +9,6 @@ console.log('🔧 Setting up Playwright for your environment...');
 const isColab = fs.existsSync('/content') || process.env.COLAB_RELEASE;
 
 if (isColab) {
-    console.log('📱 Detected Google Colab environment');
     console.log('📦 Installing system dependencies for Playwright...');
     
     try {
