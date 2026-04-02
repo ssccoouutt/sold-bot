@@ -1,5 +1,5 @@
 /**
- * Movie Downloader - Fixed version with proper browser handling
+ * Movie Downloader - Captures direct download URLs from network requests
  */
 
 const { chromium } = require('playwright');
@@ -8,15 +8,13 @@ const config = require('../../config');
 // Cineverse base URL
 const CINEVERSE_BASE = "https://cineverse.name.ng";
 
-// Store browser instance with proper management
+// Store browser instance
 let browserInstance = null;
 let isBrowserValid = false;
 
 async function getBrowser() {
-    // Check if existing browser is valid
     if (browserInstance && isBrowserValid) {
         try {
-            // Test if browser is still connected
             const contexts = browserInstance.contexts();
             if (contexts && contexts.length >= 0) {
                 return browserInstance;
@@ -28,7 +26,6 @@ async function getBrowser() {
         }
     }
     
-    // Create new browser instance
     try {
         console.log('[MOVIE DEBUG] Launching new browser instance...');
         browserInstance = await chromium.launch({
@@ -43,12 +40,10 @@ async function getBrowser() {
                 '--no-zygote',
                 '--single-process',
                 '--disable-web-security',
-                '--disable-features=IsolateOrigins,site-per-process',
-                '--disable-blink-features=AutomationControlled'
+                '--disable-features=IsolateOrigins,site-per-process'
             ]
         });
         
-        // Set up browser closed event
         browserInstance.on('disconnected', () => {
             console.log('[MOVIE DEBUG] Browser disconnected');
             isBrowserValid = false;
@@ -137,30 +132,56 @@ async function getDownloadOptions(page, movieUrl) {
             await page.waitForTimeout(1000);
         }
         
-        const downloadButtons = await page.$$('button:has-text("Download")');
-        console.log('[MOVIE DEBUG] Found', downloadButtons.length, 'download buttons');
-        
+        // Find all download buttons (quality selectors)
+        const qualityButtons = await page.$$('button');
         const qualities = [];
-        for (const btn of downloadButtons) {
-            const parent = await btn.evaluateHandle(el => {
-                let curr = el;
-                while (curr && curr.parentElement && !curr.innerText.includes('p')) {
-                    curr = curr.parentElement;
+        
+        for (const btn of qualityButtons) {
+            const btnText = await btn.innerText();
+            // Look for buttons with quality indicators
+            if (btnText.match(/\d{3,4}p/i) || (btnText.toLowerCase().includes('download') && btnText.match(/\d{3,4}p/i))) {
+                const qualityMatch = btnText.match(/(\d{3,4}p)/i);
+                const sizeMatch = btnText.match(/([\d.]+\s*(?:MB|GB))/i);
+                
+                if (qualityMatch) {
+                    qualities.push({
+                        quality: qualityMatch[1],
+                        size: sizeMatch ? sizeMatch[1] : "Unknown",
+                        button: btn
+                    });
+                    console.log('[MOVIE DEBUG] Found quality button:', qualityMatch[1], sizeMatch ? sizeMatch[1] : 'Unknown');
                 }
-                return curr;
-            });
-            
-            const parentText = await parent.innerText();
-            const qualityMatch = parentText.match(/(\d{3,4}p)/i);
-            const sizeMatch = parentText.match(/([\d.]+\s*(?:MB|GB))/i);
-            
-            if (qualityMatch) {
-                qualities.push({
-                    quality: qualityMatch[1],
-                    size: sizeMatch ? sizeMatch[1] : "Unknown",
-                    button: btn
+            }
+        }
+        
+        // If no quality buttons found with the above method, try alternative selector
+        if (qualities.length === 0) {
+            const downloadButtons = await page.$$('button:has-text("Download")');
+            for (const btn of downloadButtons) {
+                const parent = await btn.evaluateHandle(el => {
+                    let curr = el;
+                    while (curr && curr.parentElement) {
+                        const text = curr.innerText;
+                        if (text.match(/\d{3,4}p/i)) {
+                            return curr;
+                        }
+                        curr = curr.parentElement;
+                    }
+                    return el;
                 });
-                console.log('[MOVIE DEBUG] Found quality:', qualityMatch[1], sizeMatch ? sizeMatch[1] : 'Unknown');
+                
+                const parentText = await parent.innerText();
+                const qualityMatch = parentText.match(/(\d{3,4}p)/i);
+                const sizeMatch = parentText.match(/([\d.]+\s*(?:MB|GB))/i);
+                
+                if (qualityMatch) {
+                    qualities.push({
+                        quality: qualityMatch[1],
+                        size: sizeMatch ? sizeMatch[1] : "Unknown",
+                        button: btn
+                    });
+                    console.log('[MOVIE DEBUG] Found quality (alternative):', qualityMatch[1]);
+                }
             }
         }
         
@@ -173,49 +194,83 @@ async function getDownloadOptions(page, movieUrl) {
 
 async function getDirectDownloadUrl(page, qualityInfo) {
     const button = qualityInfo.button;
-    
     let capturedUrl = null;
-    let requestHandler = null;
     
     return new Promise(async (resolve) => {
         // Set timeout for this operation
         const timeoutId = setTimeout(() => {
-            if (requestHandler) page.off('request', requestHandler);
+            console.log('[MOVIE DEBUG] Timeout waiting for download URL');
             resolve(null);
-        }, 10000);
+        }, 15000);
         
-        requestHandler = (request) => {
+        // Listen for download events (Playwright's built-in download handling)
+        const downloadPromise = page.waitForEvent('download', { timeout: 10000 }).catch(() => null);
+        
+        // Also listen for network requests that might be download URLs
+        const requestHandler = (request) => {
             const url = request.url();
-            if (url && (url.includes('download') || url.includes('googlevideo')) && 
-                (url.includes('id=') || url.includes('url=') || url.includes('videoplayback'))) {
+            // Check for various download patterns
+            if (url && (
+                url.includes('.mp4') ||
+                url.includes('.mkv') ||
+                url.includes('download') ||
+                url.includes('googlevideo') ||
+                url.includes('videoplayback') ||
+                (url.includes('drive') && url.includes('uc')) ||
+                url.match(/\/[a-zA-Z0-9]+\.[mp4|mkv|avi]/i)
+            )) {
                 capturedUrl = url;
-                console.log('[MOVIE DEBUG] Captured download URL');
+                console.log('[MOVIE DEBUG] Captured download URL from request');
                 clearTimeout(timeoutId);
-                if (requestHandler) page.off('request', requestHandler);
                 resolve(capturedUrl);
             }
         };
         
         page.on('request', requestHandler);
         
+        // Also listen for responses (some downloads might be in response headers)
+        const responseHandler = (response) => {
+            const url = response.url();
+            const headers = response.headers();
+            
+            if (headers['content-disposition'] && headers['content-disposition'].includes('attachment')) {
+                capturedUrl = url;
+                console.log('[MOVIE DEBUG] Captured download URL from response');
+                clearTimeout(timeoutId);
+                resolve(capturedUrl);
+            }
+        };
+        
+        page.on('response', responseHandler);
+        
         try {
+            console.log('[MOVIE DEBUG] Clicking quality button:', qualityInfo.quality);
             await button.click();
-            console.log('[MOVIE DEBUG] Clicked quality button:', qualityInfo.quality);
+            
+            // Check if Playwright captured a download event
+            const download = await downloadPromise;
+            if (download) {
+                const downloadUrl = download.url();
+                console.log('[MOVIE DEBUG] Captured download URL from download event');
+                capturedUrl = downloadUrl;
+                clearTimeout(timeoutId);
+                // Cancel the download to save resources
+                await download.cancel().catch(() => {});
+                resolve(capturedUrl);
+            }
         } catch (error) {
             console.error('[MOVIE DEBUG] Error clicking button:', error);
-            clearTimeout(timeoutId);
-            if (requestHandler) page.off('request', requestHandler);
-            resolve(null);
         }
         
-        // Fallback: resolve after delay if no URL captured
+        // Clean up event listeners after delay
         setTimeout(() => {
+            page.off('request', requestHandler);
+            page.off('response', responseHandler);
+            clearTimeout(timeoutId);
             if (!capturedUrl) {
-                clearTimeout(timeoutId);
-                if (requestHandler) page.off('request', requestHandler);
                 resolve(null);
             }
-        }, 8000);
+        }, 12000);
     });
 }
 
@@ -265,6 +320,8 @@ module.exports = {
             
             const selectedMovie = results[0];
             
+            await reply(`🎬 *${selectedMovie.title}*\n⏳ Fetching download links...`);
+            
             const qualities = await getDownloadOptions(page, selectedMovie.url);
             
             if (!qualities || qualities.length === 0) {
@@ -284,13 +341,13 @@ module.exports = {
                     url: downloadUrl || "❌ Failed to capture link"
                 });
                 
-                await page.waitForTimeout(500);
+                await page.waitForTimeout(1000);
             }
             
             let finalMessage = `✅ *${selectedMovie.title}*`;
             if (selectedMovie.year) finalMessage += ` (${selectedMovie.year})`;
             if (selectedMovie.rating) finalMessage += ` ⭐${selectedMovie.rating}`;
-            finalMessage += `\n\n`;
+            finalMessage += `\n\n📥 *Download Links:*\n\n`;
             
             let hasValidLinks = false;
             for (const link of qualityLinks) {
@@ -320,11 +377,8 @@ module.exports = {
             if (page) {
                 try {
                     await page.close();
-                } catch (e) {
-                    console.error('[MOVIE DEBUG] Error closing page:', e.message);
-                }
+                } catch (e) {}
             }
-            // Don't close browser - keep it for next command
         }
     }
 };
