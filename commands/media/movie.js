@@ -1,5 +1,5 @@
 /**
- * Movie Downloader - Captures only video download URLs
+ * Movie Downloader - Simple fix to filter out image URLs
  */
 
 const { chromium } = require('playwright');
@@ -116,7 +116,6 @@ async function getDownloadOptions(page, movieUrl) {
         await page.goto(movieUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
         await page.waitForTimeout(3000);
         
-        // Click Download button
         const downloadBtn = await page.waitForSelector('button:has-text("Download")', { timeout: 10000 }).catch(() => null);
         if (downloadBtn) {
             await downloadBtn.click();
@@ -124,7 +123,6 @@ async function getDownloadOptions(page, movieUrl) {
             await page.waitForTimeout(2000);
         }
         
-        // Click Video tab
         const videoTab = await page.waitForSelector('button:has-text("Video")', { timeout: 10000 }).catch(() => null);
         if (videoTab) {
             await videoTab.click();
@@ -132,19 +130,23 @@ async function getDownloadOptions(page, movieUrl) {
             await page.waitForTimeout(1000);
         }
         
-        // Find quality buttons
-        const qualityButtons = await page.$$('button');
+        const downloadButtons = await page.$$('button:has-text("Download")');
         const qualities = [];
-        const processedQualities = new Set();
         
-        for (const btn of qualityButtons) {
-            const btnText = await btn.innerText();
-            // Look for buttons with quality indicators
-            const qualityMatch = btnText.match(/(\d{3,4}p)/i);
-            const sizeMatch = btnText.match(/([\d.]+\s*(?:MB|GB))/i);
+        for (const btn of downloadButtons) {
+            const parent = await btn.evaluateHandle(el => {
+                let curr = el;
+                while (curr && curr.parentElement && !curr.innerText.includes('p')) {
+                    curr = curr.parentElement;
+                }
+                return curr;
+            });
             
-            if (qualityMatch && !processedQualities.has(qualityMatch[1])) {
-                processedQualities.add(qualityMatch[1]);
+            const parentText = await parent.innerText();
+            const qualityMatch = parentText.match(/(\d{3,4}p)/i);
+            const sizeMatch = parentText.match(/([\d.]+\s*(?:MB|GB))/i);
+            
+            if (qualityMatch) {
                 qualities.push({
                     quality: qualityMatch[1],
                     size: sizeMatch ? sizeMatch[1] : "Unknown",
@@ -161,116 +163,55 @@ async function getDownloadOptions(page, movieUrl) {
     }
 }
 
-function isValidVideoUrl(url) {
-    if (!url) return false;
-    
-    // Filter out image URLs
-    if (url.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg|ico)/i)) return false;
-    
-    // Filter out image CDN URLs
-    if (url.includes('/image/') || url.includes('pbcdnw') && url.includes('.jpg')) return false;
-    
-    // Valid video patterns
-    const videoPatterns = [
-        /\.(mp4|mkv|avi|mov|wmv|flv|webm|m3u8|ts)$/i,
-        /googlevideo\.com/i,
-        /videoplayback/i,
-        /drive\.google\.com/i,
-        /download\?id=/i,
-        /\/video\//i,
-        /\/stream\//i,
-        /\/get\?/i
-    ];
-    
-    return videoPatterns.some(pattern => pattern.test(url));
-}
-
 async function getDirectDownloadUrl(page, qualityInfo) {
     const button = qualityInfo.button;
     let capturedUrl = null;
-    const capturedUrls = new Set();
     
     return new Promise(async (resolve) => {
-        // Set timeout for this operation
         const timeoutId = setTimeout(() => {
             console.log('[MOVIE DEBUG] Timeout waiting for download URL');
             resolve(null);
         }, 15000);
         
-        // Listen for download events
         const downloadPromise = page.waitForEvent('download', { timeout: 10000 }).catch(() => null);
         
-        // Listen for network requests
         const requestHandler = (request) => {
             const url = request.url();
-            if (isValidVideoUrl(url) && !capturedUrls.has(url)) {
-                capturedUrls.add(url);
+            // EXCLUDE image URLs from pbcdnw domain
+            if (url && !url.includes('pbcdnw.aoneroom.com') && !url.includes('/image/') && !url.match(/\.(jpg|jpeg|png|gif|webp)/i)) {
                 capturedUrl = url;
-                console.log('[MOVIE DEBUG] Captured video URL from request');
-                clearTimeout(timeoutId);
-                resolve(capturedUrl);
-            }
-        };
-        
-        // Listen for responses
-        const responseHandler = (response) => {
-            const url = response.url();
-            const headers = response.headers();
-            
-            if (isValidVideoUrl(url) && !capturedUrls.has(url)) {
-                capturedUrls.add(url);
-                capturedUrl = url;
-                console.log('[MOVIE DEBUG] Captured video URL from response');
-                clearTimeout(timeoutId);
-                resolve(capturedUrl);
-            }
-            
-            // Check content-disposition header
-            if (headers['content-disposition'] && headers['content-disposition'].includes('attachment') && isValidVideoUrl(url)) {
-                capturedUrls.add(url);
-                capturedUrl = url;
-                console.log('[MOVIE DEBUG] Captured video URL from content-disposition');
+                console.log('[MOVIE DEBUG] Captured download URL from request');
                 clearTimeout(timeoutId);
                 resolve(capturedUrl);
             }
         };
         
         page.on('request', requestHandler);
-        page.on('response', responseHandler);
         
         try {
             console.log('[MOVIE DEBUG] Clicking quality button:', qualityInfo.quality);
-            await button.click({ force: true }).catch(async () => {
-                // If normal click fails, try JavaScript click
-                await button.evaluate(btn => btn.click());
-            });
+            await button.click();
             
-            // Check for download event
             const download = await downloadPromise;
             if (download) {
                 const downloadUrl = download.url();
-                if (isValidVideoUrl(downloadUrl)) {
-                    console.log('[MOVIE DEBUG] Captured video URL from download event');
+                if (!downloadUrl.includes('pbcdnw.aoneroom.com')) {
                     capturedUrl = downloadUrl;
+                    console.log('[MOVIE DEBUG] Captured download URL from download event');
                     clearTimeout(timeoutId);
-                    // Cancel the download to save resources
                     await download.cancel().catch(() => {});
                     resolve(capturedUrl);
                 }
             }
         } catch (error) {
-            console.error('[MOVIE DEBUG] Error clicking button:', error.message);
+            console.error('[MOVIE DEBUG] Error clicking button:', error);
         }
         
-        // Clean up after delay
         setTimeout(() => {
             page.off('request', requestHandler);
-            page.off('response', responseHandler);
             clearTimeout(timeoutId);
-            if (!capturedUrl) {
-                resolve(null);
-            }
-        }, 10000);
+            if (!capturedUrl) resolve(null);
+        }, 12000);
     });
 }
 
@@ -305,7 +246,6 @@ module.exports = {
             browser = await getBrowser();
             page = await browser.newPage();
             
-            // Set user agent
             await page.setExtraHTTPHeaders({
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
             });
@@ -335,20 +275,11 @@ module.exports = {
                 const quality = qualities[i];
                 const downloadUrl = await getDirectDownloadUrl(page, quality);
                 
-                // Only add if we got a valid video URL
-                if (downloadUrl && isValidVideoUrl(downloadUrl)) {
-                    qualityLinks.push({
-                        quality: quality.quality,
-                        size: quality.size,
-                        url: downloadUrl
-                    });
-                } else {
-                    qualityLinks.push({
-                        quality: quality.quality,
-                        size: quality.size,
-                        url: "❌ Failed to capture link"
-                    });
-                }
+                qualityLinks.push({
+                    quality: quality.quality,
+                    size: quality.size,
+                    url: downloadUrl || "❌ Failed to capture link"
+                });
                 
                 await page.waitForTimeout(1000);
             }
@@ -360,7 +291,7 @@ module.exports = {
             
             let hasValidLinks = false;
             for (const link of qualityLinks) {
-                if (link.url && !link.url.includes('Failed')) {
+                if (link.url && !link.url.includes('Failed') && !link.url.includes('pbcdnw')) {
                     finalMessage += `🎬 *${link.quality}* (${link.size})\n`;
                     finalMessage += `${link.url}\n\n`;
                     hasValidLinks = true;
@@ -370,9 +301,9 @@ module.exports = {
             }
             
             if (!hasValidLinks) {
-                finalMessage = `❌ Failed to capture any valid download links for *${selectedMovie.title}*.\n\nThis could be due to:\n• Anti-bot protection\n• Website structure change\n• Network issues\n\nTry again later or use a different movie.`;
+                finalMessage = `❌ Failed to capture any valid download links for *${selectedMovie.title}*.\n\nTry again later.`;
             } else {
-                finalMessage += `⚠️ *Note:* Links may expire. Download immediately.\n💡 Use a download manager for better speed.`;
+                finalMessage += `⚠️ *Note:* Links may expire. Download immediately.`;
             }
             
             await reply(finalMessage);
