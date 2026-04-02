@@ -1,5 +1,5 @@
 /**
- * Movie Downloader - Simple fix to filter out image URLs
+ * Movie Downloader - Fixed browser stability
  */
 
 const { chromium } = require('playwright');
@@ -8,62 +8,49 @@ const config = require('../../config');
 // Cineverse base URL
 const CINEVERSE_BASE = "https://cineverse.name.ng";
 
-// Store browser instance
+// Single browser instance - reuse always
 let browserInstance = null;
-let isBrowserValid = false;
+let browserInitPromise = null;
 
 async function getBrowser() {
-    if (browserInstance && isBrowserValid) {
-        try {
-            const contexts = browserInstance.contexts();
-            if (contexts && contexts.length >= 0) {
-                return browserInstance;
-            }
-        } catch (error) {
-            console.log('[MOVIE DEBUG] Browser invalid, creating new one');
-            browserInstance = null;
-            isBrowserValid = false;
-        }
+    // If browser exists and is connected, return it
+    if (browserInstance && browserInstance.isConnected()) {
+        return browserInstance;
     }
     
-    try {
-        console.log('[MOVIE DEBUG] Launching new browser instance...');
-        browserInstance = await chromium.launch({
-            headless: true,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-gpu',
-                '--disable-accelerated-2d-canvas',
-                '--disable-accelerated-jpeg-decoding',
-                '--no-zygote',
-                '--single-process',
-                '--disable-web-security',
-                '--disable-features=IsolateOrigins,site-per-process'
-            ]
-        });
-        
-        browserInstance.on('disconnected', () => {
-            console.log('[MOVIE DEBUG] Browser disconnected');
-            isBrowserValid = false;
-            browserInstance = null;
-        });
-        
-        isBrowserValid = true;
-        console.log('[MOVIE DEBUG] Browser launched successfully');
-        return browserInstance;
-    } catch (error) {
-        console.error('[MOVIE DEBUG] Failed to launch browser:', error);
-        throw new Error(`Browser launch failed: ${error.message}`);
+    // If we're already initializing, wait for that
+    if (browserInitPromise) {
+        return browserInitPromise;
     }
+    
+    // Initialize new browser
+    browserInitPromise = (async () => {
+        try {
+            console.log('[MOVIE] Launching browser...');
+            browserInstance = await chromium.launch({
+                headless: true,
+                args: [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage'
+                ]
+            });
+            console.log('[MOVIE] Browser launched successfully');
+            browserInitPromise = null;
+            return browserInstance;
+        } catch (error) {
+            console.error('[MOVIE] Failed to launch browser:', error);
+            browserInitPromise = null;
+            throw error;
+        }
+    })();
+    
+    return browserInitPromise;
 }
 
 async function searchMovie(page, movieName) {
     const searchUrl = `${CINEVERSE_BASE}/search?q=${encodeURIComponent(movieName)}`;
-    console.log('[MOVIE DEBUG] Searching:', searchUrl);
-    
-    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.goto(searchUrl, { waitUntil: 'networkidle', timeout: 30000 });
     await page.waitForTimeout(3000);
     
     const results = await page.evaluate(() => {
@@ -105,62 +92,51 @@ async function searchMovie(page, movieName) {
         return unique;
     });
     
-    console.log('[MOVIE DEBUG] Found', results.length, 'results');
     return results;
 }
 
 async function getDownloadOptions(page, movieUrl) {
-    console.log('[MOVIE DEBUG] Getting download options for:', movieUrl);
+    await page.goto(movieUrl, { waitUntil: 'networkidle', timeout: 30000 });
+    await page.waitForTimeout(3000);
     
-    try {
-        await page.goto(movieUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        await page.waitForTimeout(3000);
-        
-        const downloadBtn = await page.waitForSelector('button:has-text("Download")', { timeout: 10000 }).catch(() => null);
-        if (downloadBtn) {
-            await downloadBtn.click();
-            console.log('[MOVIE DEBUG] Clicked Download button');
-            await page.waitForTimeout(2000);
-        }
-        
-        const videoTab = await page.waitForSelector('button:has-text("Video")', { timeout: 10000 }).catch(() => null);
-        if (videoTab) {
-            await videoTab.click();
-            console.log('[MOVIE DEBUG] Clicked Video tab');
-            await page.waitForTimeout(1000);
-        }
-        
-        const downloadButtons = await page.$$('button:has-text("Download")');
-        const qualities = [];
-        
-        for (const btn of downloadButtons) {
-            const parent = await btn.evaluateHandle(el => {
-                let curr = el;
-                while (curr && curr.parentElement && !curr.innerText.includes('p')) {
-                    curr = curr.parentElement;
-                }
-                return curr;
-            });
-            
-            const parentText = await parent.innerText();
-            const qualityMatch = parentText.match(/(\d{3,4}p)/i);
-            const sizeMatch = parentText.match(/([\d.]+\s*(?:MB|GB))/i);
-            
-            if (qualityMatch) {
-                qualities.push({
-                    quality: qualityMatch[1],
-                    size: sizeMatch ? sizeMatch[1] : "Unknown",
-                    button: btn
-                });
-                console.log('[MOVIE DEBUG] Found quality:', qualityMatch[1], sizeMatch ? sizeMatch[1] : 'Unknown');
-            }
-        }
-        
-        return qualities;
-    } catch (error) {
-        console.error('[MOVIE DEBUG] Error in getDownloadOptions:', error);
-        return [];
+    const downloadBtn = await page.$('button:has-text("Download")');
+    if (downloadBtn) {
+        await downloadBtn.click();
+        await page.waitForTimeout(2000);
     }
+    
+    const videoTab = await page.$('button:has-text("Video")');
+    if (videoTab) {
+        await videoTab.click();
+        await page.waitForTimeout(1000);
+    }
+    
+    const downloadButtons = await page.$$('button:has-text("Download")');
+    const qualities = [];
+    
+    for (const btn of downloadButtons) {
+        const parent = await btn.evaluateHandle(el => {
+            let curr = el;
+            while (curr && curr.parentElement && !curr.innerText.includes('p')) {
+                curr = curr.parentElement;
+            }
+            return curr;
+        });
+        
+        const parentText = await parent.innerText();
+        const qualityMatch = parentText.match(/(\d{3,4}p)/i);
+        const sizeMatch = parentText.match(/([\d.]+\s*(?:MB|GB))/i);
+        
+        if (qualityMatch) {
+            qualities.push({
+                quality: qualityMatch[1],
+                size: sizeMatch ? sizeMatch[1] : "Unknown",
+                button: btn
+            });
+        }
+    }
+    
+    return qualities;
 }
 
 async function getDirectDownloadUrl(page, qualityInfo) {
@@ -169,18 +145,14 @@ async function getDirectDownloadUrl(page, qualityInfo) {
     
     return new Promise(async (resolve) => {
         const timeoutId = setTimeout(() => {
-            console.log('[MOVIE DEBUG] Timeout waiting for download URL');
             resolve(null);
-        }, 15000);
-        
-        const downloadPromise = page.waitForEvent('download', { timeout: 10000 }).catch(() => null);
+        }, 10000);
         
         const requestHandler = (request) => {
             const url = request.url();
-            // EXCLUDE image URLs from pbcdnw domain
-            if (url && !url.includes('pbcdnw.aoneroom.com') && !url.includes('/image/') && !url.match(/\.(jpg|jpeg|png|gif|webp)/i)) {
+            // Filter out image URLs
+            if (url && !url.includes('pbcdnw.aoneroom.com') && !url.includes('/image/')) {
                 capturedUrl = url;
-                console.log('[MOVIE DEBUG] Captured download URL from request');
                 clearTimeout(timeoutId);
                 resolve(capturedUrl);
             }
@@ -189,36 +161,23 @@ async function getDirectDownloadUrl(page, qualityInfo) {
         page.on('request', requestHandler);
         
         try {
-            console.log('[MOVIE DEBUG] Clicking quality button:', qualityInfo.quality);
             await button.click();
-            
-            const download = await downloadPromise;
-            if (download) {
-                const downloadUrl = download.url();
-                if (!downloadUrl.includes('pbcdnw.aoneroom.com')) {
-                    capturedUrl = downloadUrl;
-                    console.log('[MOVIE DEBUG] Captured download URL from download event');
-                    clearTimeout(timeoutId);
-                    await download.cancel().catch(() => {});
-                    resolve(capturedUrl);
-                }
-            }
         } catch (error) {
-            console.error('[MOVIE DEBUG] Error clicking button:', error);
+            console.error('[MOVIE] Error clicking button:', error.message);
         }
         
         setTimeout(() => {
             page.off('request', requestHandler);
             clearTimeout(timeoutId);
             if (!capturedUrl) resolve(null);
-        }, 12000);
+        }, 8000);
     });
 }
 
 module.exports = {
     name: 'movie',
     aliases: ['cinema', 'cineverse', 'movielink'],
-    description: 'Search movies and get direct download links for all qualities',
+    description: 'Search movies and get direct download links',
     usage: '.movie <movie name>',
     category: 'media',
     ownerOnly: false,
@@ -231,7 +190,7 @@ module.exports = {
                        `Usage: \`${config.prefix}movie <movie name>\`\n\n` +
                        `*Examples:*\n` +
                        `• \`${config.prefix}movie 3 idiots\`\n` +
-                       `• \`${config.prefix}movie stranger things\``);
+                       `• \`${config.prefix}movie pk\``);
             return;
         }
 
@@ -240,15 +199,10 @@ module.exports = {
         await react('🔍');
         
         let page = null;
-        let browser = null;
         
         try {
-            browser = await getBrowser();
+            const browser = await getBrowser();
             page = await browser.newPage();
-            
-            await page.setExtraHTTPHeaders({
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            });
             
             const results = await searchMovie(page, query);
             
@@ -259,9 +213,6 @@ module.exports = {
             }
             
             const selectedMovie = results[0];
-            
-            await reply(`🎬 *${selectedMovie.title}*\n⏳ Fetching download links...`);
-            
             const qualities = await getDownloadOptions(page, selectedMovie.url);
             
             if (!qualities || qualities.length === 0) {
@@ -278,10 +229,10 @@ module.exports = {
                 qualityLinks.push({
                     quality: quality.quality,
                     size: quality.size,
-                    url: downloadUrl || "❌ Failed to capture link"
+                    url: downloadUrl || "❌ Failed"
                 });
                 
-                await page.waitForTimeout(1000);
+                await page.waitForTimeout(500);
             }
             
             let finalMessage = `✅ *${selectedMovie.title}*`;
@@ -295,13 +246,11 @@ module.exports = {
                     finalMessage += `🎬 *${link.quality}* (${link.size})\n`;
                     finalMessage += `${link.url}\n\n`;
                     hasValidLinks = true;
-                } else {
-                    finalMessage += `❌ *${link.quality}* (${link.size}) - Link unavailable\n\n`;
                 }
             }
             
             if (!hasValidLinks) {
-                finalMessage = `❌ Failed to capture any valid download links for *${selectedMovie.title}*.\n\nTry again later.`;
+                finalMessage = `❌ Failed to capture any valid download links.`;
             } else {
                 finalMessage += `⚠️ *Note:* Links may expire. Download immediately.`;
             }
@@ -310,15 +259,18 @@ module.exports = {
             await react(hasValidLinks ? '✅' : '❌');
             
         } catch (error) {
-            console.error('[MOVIE DEBUG] Error:', error);
+            console.error('[MOVIE] Error:', error);
             await reply(`❌ Failed: ${error.message}`);
             await react('❌');
         } finally {
             if (page) {
                 try {
                     await page.close();
-                } catch (e) {}
+                } catch (e) {
+                    console.error('[MOVIE] Error closing page:', e.message);
+                }
             }
+            // IMPORTANT: Don't close browser here - keep it for next command
         }
     }
 };
