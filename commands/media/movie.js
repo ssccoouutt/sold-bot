@@ -1,31 +1,6 @@
-/**
- * Movie Downloader - Simplified version with minimal messages
- * Shows first 5 results, selects best match, displays all quality links
- */
-
 const { chromium } = require('playwright');
-const config = require('../../config');
 
-// Cineverse base URL
 const CINEVERSE_BASE = "https://cineverse.name.ng";
-
-// Store browser instance (reuse across searches)
-let browserInstance = null;
-
-async function getBrowser() {
-    if (!browserInstance) {
-        console.log('[MOVIE] Launching browser...');
-        browserInstance = await chromium.launch({
-            headless: true,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage'
-            ]
-        });
-    }
-    return browserInstance;
-}
 
 async function searchMovie(page, movieName) {
     const searchUrl = `${CINEVERSE_BASE}/search?q=${encodeURIComponent(movieName)}`;
@@ -78,45 +53,42 @@ async function getDownloadOptions(page, movieUrl) {
     await page.goto(movieUrl, { waitUntil: 'networkidle', timeout: 30000 });
     await page.waitForTimeout(3000);
     
-    const buttons = await page.$$('button');
-    for (const btn of buttons) {
-        const text = await btn.innerText();
-        if (text && text.includes('Download')) {
-            await btn.click();
-            break;
-        }
+    const mainDownloadButton = await page.$('button:has-text("Download")');
+    if (mainDownloadButton) {
+        await mainDownloadButton.click();
+        await page.waitForTimeout(3000);
     }
-    
-    await page.waitForTimeout(3000);
-    
-    const videoTab = await page.$('button:has-text("Video")');
-    if (videoTab) {
-        await videoTab.click();
-        await page.waitForTimeout(1000);
-    }
-    
-    const downloadButtons = await page.$$('button:has-text("Download")');
-    
-    const qualities = [];
-    for (const btn of downloadButtons) {
-        const parent = await btn.evaluateHandle(el => {
-            let curr = el;
-            while (curr && curr.parentElement && !curr.innerText.includes('p')) {
-                curr = curr.parentElement;
-            }
-            return curr;
-        });
-        
-        const parentText = await parent.innerText();
-        const qualityMatch = parentText.match(/(\d{3,4}p)/i);
-        const sizeMatch = parentText.match(/([\d.]+\s*(?:MB|GB))/i);
-        
-        if (qualityMatch) {
-            qualities.push({
-                quality: qualityMatch[1],
-                size: sizeMatch ? sizeMatch[1] : "Unknown",
-                button: btn
+
+    const qualities = await page.evaluate(() => {
+        const qualityOptions = [];
+        const dialog = document.querySelector('[role="dialog"]');
+        if (dialog) {
+            const items = dialog.querySelectorAll('div.flex.justify-between.items-center.gap-4');
+            items.forEach((item, index) => {
+                const qualityText = item.querySelector('p.font-bold').innerText;
+                const sizeText = item.querySelector('p.text-sm.text-muted-foreground').innerText;
+                const downloadButton = item.querySelector('button');
+
+                const qualityMatch = qualityText.match(/(\d{3,4}p)/i);
+                const sizeMatch = sizeText.match(/([\d.]+\s*(?:MB|GB))/i);
+
+                if (qualityMatch && downloadButton) {
+                    qualityOptions.push({
+                        quality: qualityMatch[1],
+                        size: sizeMatch ? sizeMatch[1] : "Unknown",
+                        index: index + 1
+                    });
+                }
             });
+        }
+        return qualityOptions;
+    });
+
+    for (let i = 0; i < qualities.length; i++) {
+        const quality = qualities[i];
+        const buttons = await page.$$(`div.flex.justify-between.items-center.gap-4 button`);
+        if (buttons.length >= quality.index) {
+            quality.button = buttons[quality.index - 1];
         }
     }
     
@@ -129,16 +101,14 @@ async function getDirectDownloadUrl(page, qualityInfo) {
     let capturedUrl = null;
     const requestHandler = (request) => {
         const url = request.url();
-        if (url.includes('download') && (url.includes('id=') || url.includes('url='))) {
+        if (url.includes('download') || url.includes('drive.google.com') || url.includes('file.io')) {
             capturedUrl = url;
         }
     };
     
     page.on('request', requestHandler);
     
-    await page.evaluate(async (buttonElement) => {
-        buttonElement.click();
-    }, button);
+    await button.click();
     
     let count = 0;
     while (!capturedUrl && count < 50) {
@@ -148,105 +118,72 @@ async function getDirectDownloadUrl(page, qualityInfo) {
     
     page.off('request', requestHandler);
     
-    return capturedUrl;
-}
+    if (capturedUrl && !capturedUrl.endsWith('/downloads')) return capturedUrl;
 
-module.exports = {
-    name: 'movie',
-    aliases: ['cinema', 'cineverse', 'movielink'],
-    description: 'Search movies and get direct download links for all qualities',
-    usage: '.movie <movie name>',
-    category: 'media',
-    ownerOnly: false,
-
-    async execute(sock, msg, args, context) {
-        const { from, reply, react } = context;
-
-        if (args.length === 0) {
-            await reply(`🎬 *Movie Link Finder*\n\n` +
-                       `Usage: \`${config.prefix}movie <movie name>\`\n\n` +
-                       `*Examples:*\n` +
-                       `• \`${config.prefix}movie 3 idiots\`\n` +
-                       `• \`${config.prefix}movie stranger things\``);
-            return;
-        }
-
-        const query = args.join(' ');
-        
-        await react('🔍');
-        
-        let browser = null;
-        let page = null;
-        
-        try {
-            browser = await getBrowser();
-            page = await browser.newPage();
-            
-            const results = await searchMovie(page, query);
-            
-            if (!results || results.length === 0) {
-                await reply(`❌ No results found for "${query}".`);
-                await react('❌');
-                return;
-            }
-            
-            const topResults = results.slice(0, 5);
-            const selectedMovie = topResults[0];
-            
-            // Get all quality options
-            const qualities = await getDownloadOptions(page, selectedMovie.url);
-            
-            if (!qualities || qualities.length === 0) {
-                await reply(`❌ No download options found for *${selectedMovie.title}*`);
-                await react('❌');
-                return;
-            }
-            
-            // Get download links for all qualities
-            const qualityLinks = [];
-            for (let i = 0; i < qualities.length; i++) {
-                const quality = qualities[i];
-                const downloadUrl = await getDirectDownloadUrl(page, quality);
-                
-                qualityLinks.push({
-                    quality: quality.quality,
-                    size: quality.size,
-                    url: downloadUrl || "❌ Failed to capture link"
-                });
-                
-                await page.waitForTimeout(500);
-            }
-            
-            // Prepare final message
-            let finalMessage = `✅ *${selectedMovie.title}*`;
-            if (selectedMovie.year) finalMessage += ` (${selectedMovie.year})`;
-            if (selectedMovie.rating) finalMessage += ` ⭐${selectedMovie.rating}`;
-            finalMessage += `\n\n`;
-            
-            for (const link of qualityLinks) {
-                if (link.url && !link.url.includes('Failed')) {
-                    finalMessage += `🎬 *${link.quality}* (${link.size})\n`;
-                    finalMessage += `${link.url}\n\n`;
-                } else {
-                    finalMessage += `❌ *${link.quality}* (${link.size}) - Link unavailable\n\n`;
+    // If we are on the /downloads page, we need to find the actual link
+    if (page.url().endsWith('/downloads')) {
+        await page.waitForTimeout(2000);
+        const actualLink = await page.evaluate(() => {
+            const links = Array.from(document.querySelectorAll('a'));
+            for (const link of links) {
+                const href = link.href;
+                if (href && (href.includes('drive.google.com') || href.includes('file.io') || href.includes('download') && !href.endsWith('/downloads'))) {
+                    return href;
                 }
             }
-            
-            finalMessage += `⚠️ *Note:* Links may expire. Download immediately.`;
-            
-            await reply(finalMessage);
-            await react('✅');
-            
-        } catch (error) {
-            console.error('[MOVIE] Error:', error);
-            await reply(`❌ Failed: ${error.message}`);
-            await react('❌');
-        } finally {
-            if (page) {
-                try {
-                    await page.close();
-                } catch (e) {}
+            // Look for buttons that might have the link
+            const buttons = Array.from(document.querySelectorAll('button, a.btn'));
+            for (const btn of buttons) {
+                const text = btn.innerText.toLowerCase();
+                if (text.includes('download') || text.includes('click here')) {
+                    if (btn.href) return btn.href;
+                    if (btn.onclick) {
+                        // This is tricky, but sometimes the link is in the onclick
+                        const match = btn.onclick.toString().match(/https?:\/\/[^\s'"]+/);
+                        if (match) return match[0];
+                    }
+                }
+            }
+            return null;
+        });
+        if (actualLink) return actualLink;
+    }
+
+    const downloadUrl = await page.evaluate(() => {
+        const links = Array.from(document.querySelectorAll('a'));
+        for (const link of links) {
+            const href = link.href;
+            if (href && (href.includes('download') && !href.endsWith('/downloads') || href.includes('drive.google.com') || href.includes('file.io'))) {
+                return href;
             }
         }
+        return null;
+    });
+
+    return downloadUrl;
+}
+
+(async () => {
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    
+    console.log('Searching for PK...');
+    const results = await searchMovie(page, 'PK');
+    console.log('Found results:', results.length);
+    
+    if (results.length > 0) {
+        const selectedMovie = results[0];
+        console.log('Selected:', selectedMovie.title);
+        
+        const qualities = await getDownloadOptions(page, selectedMovie.url);
+        console.log('Qualities found:', qualities.length);
+        
+        for (const quality of qualities) {
+            console.log(`Capturing link for ${quality.quality}...`);
+            const link = await getDirectDownloadUrl(page, quality);
+            console.log(`${quality.quality}: ${link || 'Failed'}`);
+        }
     }
-};
+    
+    await browser.close();
+})();
