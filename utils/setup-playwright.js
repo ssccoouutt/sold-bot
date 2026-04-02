@@ -5,7 +5,6 @@ const os = require('os');
 
 console.log('🔧 Setting up Playwright for your environment...');
 
-// Detect if running in Google Colab
 const isColab = fs.existsSync('/content') || process.env.COLAB_RELEASE;
 
 if (isColab) {
@@ -65,7 +64,6 @@ if (isColab) {
         console.log('✅ System dependencies installed successfully');
     } catch (error) {
         console.log('⚠️ Could not install system dependencies automatically');
-        console.log('Please run this command manually in Colab:');
         console.log('!apt-get update && apt-get install -y libatk-bridge2.0-0 libatk1.0-0 libcups2 libdrm2 libgbm1 libgtk-3-0 libnspr4 libnss3 libx11-xcb1 libxcb-dri3-0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libxshmfence1 libxss1');
     }
 }
