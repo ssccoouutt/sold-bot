@@ -1,5 +1,5 @@
 /**
- * Movie Downloader - Captures direct download URLs from network requests
+ * Movie Downloader - Captures only video download URLs
  */
 
 const { chromium } = require('playwright');
@@ -132,56 +132,25 @@ async function getDownloadOptions(page, movieUrl) {
             await page.waitForTimeout(1000);
         }
         
-        // Find all download buttons (quality selectors)
+        // Find quality buttons
         const qualityButtons = await page.$$('button');
         const qualities = [];
+        const processedQualities = new Set();
         
         for (const btn of qualityButtons) {
             const btnText = await btn.innerText();
             // Look for buttons with quality indicators
-            if (btnText.match(/\d{3,4}p/i) || (btnText.toLowerCase().includes('download') && btnText.match(/\d{3,4}p/i))) {
-                const qualityMatch = btnText.match(/(\d{3,4}p)/i);
-                const sizeMatch = btnText.match(/([\d.]+\s*(?:MB|GB))/i);
-                
-                if (qualityMatch) {
-                    qualities.push({
-                        quality: qualityMatch[1],
-                        size: sizeMatch ? sizeMatch[1] : "Unknown",
-                        button: btn
-                    });
-                    console.log('[MOVIE DEBUG] Found quality button:', qualityMatch[1], sizeMatch ? sizeMatch[1] : 'Unknown');
-                }
-            }
-        }
-        
-        // If no quality buttons found with the above method, try alternative selector
-        if (qualities.length === 0) {
-            const downloadButtons = await page.$$('button:has-text("Download")');
-            for (const btn of downloadButtons) {
-                const parent = await btn.evaluateHandle(el => {
-                    let curr = el;
-                    while (curr && curr.parentElement) {
-                        const text = curr.innerText;
-                        if (text.match(/\d{3,4}p/i)) {
-                            return curr;
-                        }
-                        curr = curr.parentElement;
-                    }
-                    return el;
+            const qualityMatch = btnText.match(/(\d{3,4}p)/i);
+            const sizeMatch = btnText.match(/([\d.]+\s*(?:MB|GB))/i);
+            
+            if (qualityMatch && !processedQualities.has(qualityMatch[1])) {
+                processedQualities.add(qualityMatch[1]);
+                qualities.push({
+                    quality: qualityMatch[1],
+                    size: sizeMatch ? sizeMatch[1] : "Unknown",
+                    button: btn
                 });
-                
-                const parentText = await parent.innerText();
-                const qualityMatch = parentText.match(/(\d{3,4}p)/i);
-                const sizeMatch = parentText.match(/([\d.]+\s*(?:MB|GB))/i);
-                
-                if (qualityMatch) {
-                    qualities.push({
-                        quality: qualityMatch[1],
-                        size: sizeMatch ? sizeMatch[1] : "Unknown",
-                        button: btn
-                    });
-                    console.log('[MOVIE DEBUG] Found quality (alternative):', qualityMatch[1]);
-                }
+                console.log('[MOVIE DEBUG] Found quality:', qualityMatch[1], sizeMatch ? sizeMatch[1] : 'Unknown');
             }
         }
         
@@ -192,9 +161,34 @@ async function getDownloadOptions(page, movieUrl) {
     }
 }
 
+function isValidVideoUrl(url) {
+    if (!url) return false;
+    
+    // Filter out image URLs
+    if (url.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg|ico)/i)) return false;
+    
+    // Filter out image CDN URLs
+    if (url.includes('/image/') || url.includes('pbcdnw') && url.includes('.jpg')) return false;
+    
+    // Valid video patterns
+    const videoPatterns = [
+        /\.(mp4|mkv|avi|mov|wmv|flv|webm|m3u8|ts)$/i,
+        /googlevideo\.com/i,
+        /videoplayback/i,
+        /drive\.google\.com/i,
+        /download\?id=/i,
+        /\/video\//i,
+        /\/stream\//i,
+        /\/get\?/i
+    ];
+    
+    return videoPatterns.some(pattern => pattern.test(url));
+}
+
 async function getDirectDownloadUrl(page, qualityInfo) {
     const button = qualityInfo.button;
     let capturedUrl = null;
+    const capturedUrls = new Set();
     
     return new Promise(async (resolve) => {
         // Set timeout for this operation
@@ -203,66 +197,72 @@ async function getDirectDownloadUrl(page, qualityInfo) {
             resolve(null);
         }, 15000);
         
-        // Listen for download events (Playwright's built-in download handling)
+        // Listen for download events
         const downloadPromise = page.waitForEvent('download', { timeout: 10000 }).catch(() => null);
         
-        // Also listen for network requests that might be download URLs
+        // Listen for network requests
         const requestHandler = (request) => {
             const url = request.url();
-            // Check for various download patterns
-            if (url && (
-                url.includes('.mp4') ||
-                url.includes('.mkv') ||
-                url.includes('download') ||
-                url.includes('googlevideo') ||
-                url.includes('videoplayback') ||
-                (url.includes('drive') && url.includes('uc')) ||
-                url.match(/\/[a-zA-Z0-9]+\.[mp4|mkv|avi]/i)
-            )) {
+            if (isValidVideoUrl(url) && !capturedUrls.has(url)) {
+                capturedUrls.add(url);
                 capturedUrl = url;
-                console.log('[MOVIE DEBUG] Captured download URL from request');
+                console.log('[MOVIE DEBUG] Captured video URL from request');
+                clearTimeout(timeoutId);
+                resolve(capturedUrl);
+            }
+        };
+        
+        // Listen for responses
+        const responseHandler = (response) => {
+            const url = response.url();
+            const headers = response.headers();
+            
+            if (isValidVideoUrl(url) && !capturedUrls.has(url)) {
+                capturedUrls.add(url);
+                capturedUrl = url;
+                console.log('[MOVIE DEBUG] Captured video URL from response');
+                clearTimeout(timeoutId);
+                resolve(capturedUrl);
+            }
+            
+            // Check content-disposition header
+            if (headers['content-disposition'] && headers['content-disposition'].includes('attachment') && isValidVideoUrl(url)) {
+                capturedUrls.add(url);
+                capturedUrl = url;
+                console.log('[MOVIE DEBUG] Captured video URL from content-disposition');
                 clearTimeout(timeoutId);
                 resolve(capturedUrl);
             }
         };
         
         page.on('request', requestHandler);
-        
-        // Also listen for responses (some downloads might be in response headers)
-        const responseHandler = (response) => {
-            const url = response.url();
-            const headers = response.headers();
-            
-            if (headers['content-disposition'] && headers['content-disposition'].includes('attachment')) {
-                capturedUrl = url;
-                console.log('[MOVIE DEBUG] Captured download URL from response');
-                clearTimeout(timeoutId);
-                resolve(capturedUrl);
-            }
-        };
-        
         page.on('response', responseHandler);
         
         try {
             console.log('[MOVIE DEBUG] Clicking quality button:', qualityInfo.quality);
-            await button.click();
+            await button.click({ force: true }).catch(async () => {
+                // If normal click fails, try JavaScript click
+                await button.evaluate(btn => btn.click());
+            });
             
-            // Check if Playwright captured a download event
+            // Check for download event
             const download = await downloadPromise;
             if (download) {
                 const downloadUrl = download.url();
-                console.log('[MOVIE DEBUG] Captured download URL from download event');
-                capturedUrl = downloadUrl;
-                clearTimeout(timeoutId);
-                // Cancel the download to save resources
-                await download.cancel().catch(() => {});
-                resolve(capturedUrl);
+                if (isValidVideoUrl(downloadUrl)) {
+                    console.log('[MOVIE DEBUG] Captured video URL from download event');
+                    capturedUrl = downloadUrl;
+                    clearTimeout(timeoutId);
+                    // Cancel the download to save resources
+                    await download.cancel().catch(() => {});
+                    resolve(capturedUrl);
+                }
             }
         } catch (error) {
-            console.error('[MOVIE DEBUG] Error clicking button:', error);
+            console.error('[MOVIE DEBUG] Error clicking button:', error.message);
         }
         
-        // Clean up event listeners after delay
+        // Clean up after delay
         setTimeout(() => {
             page.off('request', requestHandler);
             page.off('response', responseHandler);
@@ -270,7 +270,7 @@ async function getDirectDownloadUrl(page, qualityInfo) {
             if (!capturedUrl) {
                 resolve(null);
             }
-        }, 12000);
+        }, 10000);
     });
 }
 
@@ -335,11 +335,20 @@ module.exports = {
                 const quality = qualities[i];
                 const downloadUrl = await getDirectDownloadUrl(page, quality);
                 
-                qualityLinks.push({
-                    quality: quality.quality,
-                    size: quality.size,
-                    url: downloadUrl || "❌ Failed to capture link"
-                });
+                // Only add if we got a valid video URL
+                if (downloadUrl && isValidVideoUrl(downloadUrl)) {
+                    qualityLinks.push({
+                        quality: quality.quality,
+                        size: quality.size,
+                        url: downloadUrl
+                    });
+                } else {
+                    qualityLinks.push({
+                        quality: quality.quality,
+                        size: quality.size,
+                        url: "❌ Failed to capture link"
+                    });
+                }
                 
                 await page.waitForTimeout(1000);
             }
