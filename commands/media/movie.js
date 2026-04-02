@@ -1,50 +1,35 @@
 /**
- * Movie Downloader - Using Puppeteer (Better for Colab/Server)
+ * Movie Downloader - Simplified version with minimal messages
+ * Shows first 5 results, selects best match, displays all quality links
  */
 
-const puppeteer = require('puppeteer');
+const { chromium } = require('playwright');
 const config = require('../../config');
 
 // Cineverse base URL
 const CINEVERSE_BASE = "https://cineverse.name.ng";
 
-// Store browser instance
+// Store browser instance (reuse across searches)
 let browserInstance = null;
 
 async function getBrowser() {
-    if (browserInstance && browserInstance.isConnected()) {
-        return browserInstance;
-    }
-    
-    try {
-        console.log('[MOVIE] Launching browser with Puppeteer...');
-        browserInstance = await puppeteer.launch({
+    if (!browserInstance) {
+        console.log('[MOVIE] Launching browser...');
+        browserInstance = await chromium.launch({
             headless: true,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-gpu',
-                '--disable-accelerated-2d-canvas',
-                '--disable-accelerated-jpeg-decoding',
-                '--no-zygote',
-                '--single-process',
-                '--disable-web-security',
-                '--disable-features=IsolateOrigins,site-per-process'
-            ],
-            ignoreHTTPSErrors: true
+                '--disable-dev-shm-usage'
+            ]
         });
-        console.log('[MOVIE] Browser launched successfully');
-        return browserInstance;
-    } catch (error) {
-        console.error('[MOVIE] Failed to launch browser:', error);
-        throw new Error(`Browser launch failed: ${error.message}`);
     }
+    return browserInstance;
 }
 
 async function searchMovie(page, movieName) {
     const searchUrl = `${CINEVERSE_BASE}/search?q=${encodeURIComponent(movieName)}`;
-    await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+    await page.goto(searchUrl, { waitUntil: 'networkidle', timeout: 30000 });
     await page.waitForTimeout(3000);
     
     const results = await page.evaluate(() => {
@@ -90,12 +75,12 @@ async function searchMovie(page, movieName) {
 }
 
 async function getDownloadOptions(page, movieUrl) {
-    await page.goto(movieUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+    await page.goto(movieUrl, { waitUntil: 'networkidle', timeout: 30000 });
     await page.waitForTimeout(3000);
     
     const buttons = await page.$$('button');
     for (const btn of buttons) {
-        const text = await page.evaluate(el => el.innerText, btn);
+        const text = await btn.innerText();
         if (text && text.includes('Download')) {
             await btn.click();
             break;
@@ -114,15 +99,15 @@ async function getDownloadOptions(page, movieUrl) {
     
     const qualities = [];
     for (const btn of downloadButtons) {
-        const parent = await page.evaluateHandle(el => {
+        const parent = await btn.evaluateHandle(el => {
             let curr = el;
             while (curr && curr.parentElement && !curr.innerText.includes('p')) {
                 curr = curr.parentElement;
             }
             return curr;
-        }, btn);
+        });
         
-        const parentText = await page.evaluate(el => el.innerText, parent);
+        const parentText = await parent.innerText();
         const qualityMatch = parentText.match(/(\d{3,4}p)/i);
         const sizeMatch = parentText.match(/([\d.]+\s*(?:MB|GB))/i);
         
@@ -142,28 +127,26 @@ async function getDirectDownloadUrl(page, qualityInfo) {
     const button = qualityInfo.button;
     
     let capturedUrl = null;
-    
-    // Setup request interception
-    await page.setRequestInterception(true);
-    
-    page.on('request', (request) => {
+    const requestHandler = (request) => {
         const url = request.url();
         if (url.includes('download') && (url.includes('id=') || url.includes('url='))) {
             capturedUrl = url;
         }
-        request.continue();
-    });
+    };
     
-    await button.click();
+    page.on('request', requestHandler);
     
-    // Wait for the request to be captured
+    await page.evaluate(async (buttonElement) => {
+        buttonElement.click();
+    }, button);
+    
     let count = 0;
     while (!capturedUrl && count < 50) {
         await page.waitForTimeout(100);
         count++;
     }
     
-    await page.setRequestInterception(false);
+    page.off('request', requestHandler);
     
     return capturedUrl;
 }
@@ -192,14 +175,12 @@ module.exports = {
         
         await react('🔍');
         
+        let browser = null;
         let page = null;
         
         try {
-            const browser = await getBrowser();
+            browser = await getBrowser();
             page = await browser.newPage();
-            
-            // Set user agent to avoid detection
-            await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
             
             const results = await searchMovie(page, query);
             
@@ -209,8 +190,10 @@ module.exports = {
                 return;
             }
             
-            const selectedMovie = results[0];
+            const topResults = results.slice(0, 5);
+            const selectedMovie = topResults[0];
             
+            // Get all quality options
             const qualities = await getDownloadOptions(page, selectedMovie.url);
             
             if (!qualities || qualities.length === 0) {
@@ -219,6 +202,7 @@ module.exports = {
                 return;
             }
             
+            // Get download links for all qualities
             const qualityLinks = [];
             for (let i = 0; i < qualities.length; i++) {
                 const quality = qualities[i];
@@ -233,6 +217,7 @@ module.exports = {
                 await page.waitForTimeout(500);
             }
             
+            // Prepare final message
             let finalMessage = `✅ *${selectedMovie.title}*`;
             if (selectedMovie.year) finalMessage += ` (${selectedMovie.year})`;
             if (selectedMovie.rating) finalMessage += ` ⭐${selectedMovie.rating}`;
