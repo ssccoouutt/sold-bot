@@ -1,5 +1,5 @@
 /**
- * Movie Downloader - Using Playwright with proper headless mode
+ * Movie Downloader - Using Playwright (Fixed)
  */
 
 const { chromium } = require('playwright');
@@ -19,7 +19,7 @@ async function getBrowser() {
     try {
         console.log('[MOVIE DEBUG] Launching browser in headless mode...');
         browserInstance = await chromium.launch({
-            headless: true,  // IMPORTANT: Must be true for Colab/headless environments
+            headless: true,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -30,12 +30,8 @@ async function getBrowser() {
                 '--no-zygote',
                 '--single-process',
                 '--disable-web-security',
-                '--disable-features=IsolateOrigins,site-per-process',
-                '--disable-blink-features=AutomationControlled',
-                '--disable-infobars',
-                '--window-size=1920,1080'
-            ],
-            ignoreDefaultArgs: ['--mute-audio']
+                '--disable-features=IsolateOrigins,site-per-process'
+            ]
         });
         console.log('[MOVIE DEBUG] Browser launched successfully');
         return browserInstance;
@@ -47,7 +43,7 @@ async function getBrowser() {
 
 async function searchMovie(page, movieName) {
     const searchUrl = `${CINEVERSE_BASE}/search?q=${encodeURIComponent(movieName)}`;
-    console.log(`[MOVIE DEBUG] Searching: ${searchUrl}`);
+    console.log('[MOVIE DEBUG] Searching:', searchUrl);
     await page.goto(searchUrl, { waitUntil: 'networkidle', timeout: 30000 });
     await page.waitForTimeout(3000);
     
@@ -90,12 +86,12 @@ async function searchMovie(page, movieName) {
         return unique;
     });
     
-    console.log(`[MOVIE DEBUG] Found ${results.length} results`);
+    console.log('[MOVIE DEBUG] Found', results.length, 'results');
     return results;
 }
 
 async function getDownloadOptions(page, movieUrl) {
-    console.log(`[MOVIE DEBUG] Getting download options from: ${movieUrl}`);
+    console.log('[MOVIE DEBUG] Getting download options for:', movieUrl);
     await page.goto(movieUrl, { waitUntil: 'networkidle', timeout: 30000 });
     await page.waitForTimeout(3000);
     
@@ -105,6 +101,7 @@ async function getDownloadOptions(page, movieUrl) {
         const text = await btn.innerText();
         if (text && text.includes('Download')) {
             await btn.click();
+            console.log('[MOVIE DEBUG] Clicked Download button');
             break;
         }
     }
@@ -115,11 +112,12 @@ async function getDownloadOptions(page, movieUrl) {
     const videoTab = await page.$('button:has-text("Video")');
     if (videoTab) {
         await videoTab.click();
+        console.log('[MOVIE DEBUG] Clicked Video tab');
         await page.waitForTimeout(1000);
     }
     
-    // Find quality buttons
     const downloadButtons = await page.$$('button:has-text("Download")');
+    console.log('[MOVIE DEBUG] Found', downloadButtons.length, 'download buttons');
     
     const qualities = [];
     for (const btn of downloadButtons) {
@@ -141,10 +139,10 @@ async function getDownloadOptions(page, movieUrl) {
                 size: sizeMatch ? sizeMatch[1] : "Unknown",
                 button: btn
             });
+            console.log('[MOVIE DEBUG] Found quality:', qualityMatch[1], sizeMatch ? sizeMatch[1] : 'Unknown');
         }
     }
     
-    console.log(`[MOVIE DEBUG] Found ${qualities.length} qualities`);
     return qualities;
 }
 
@@ -156,15 +154,14 @@ async function getDirectDownloadUrl(page, qualityInfo) {
         const url = request.url();
         if (url.includes('download') && (url.includes('id=') || url.includes('url='))) {
             capturedUrl = url;
-            console.log(`[MOVIE DEBUG] Captured URL: ${url.substring(0, 100)}...`);
+            console.log('[MOVIE DEBUG] Captured download URL:', url.substring(0, 100));
         }
     };
     
     page.on('request', requestHandler);
     
-    await page.evaluate(async (buttonElement) => {
-        buttonElement.click();
-    }, button);
+    await button.click();
+    console.log('[MOVIE DEBUG] Clicked quality button:', qualityInfo.quality);
     
     // Wait for the request to be captured
     let count = 0;
@@ -174,6 +171,10 @@ async function getDirectDownloadUrl(page, qualityInfo) {
     }
     
     page.off('request', requestHandler);
+    
+    if (!capturedUrl) {
+        console.log('[MOVIE DEBUG] Failed to capture download URL');
+    }
     
     return capturedUrl;
 }
@@ -208,8 +209,10 @@ module.exports = {
             const browser = await getBrowser();
             page = await browser.newPage();
             
-            // Set user agent to avoid detection
-            await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+            // Set user agent for Playwright (different from puppeteer)
+            await page.setExtraHTTPHeaders({
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            });
             
             const results = await searchMovie(page, query);
             
@@ -219,21 +222,7 @@ module.exports = {
                 return;
             }
             
-            // Show top 5 results and auto-select first
-            const topResults = results.slice(0, 5);
-            const selectedMovie = topResults[0];
-            
-            // Optional: Send results preview
-            let resultsPreview = `📋 *Top results for "${query}"*\n\n`;
-            for (let i = 0; i < topResults.length; i++) {
-                const r = topResults[i];
-                resultsPreview += `${i+1}. *${r.title}*`;
-                if (r.year) resultsPreview += ` (${r.year})`;
-                if (r.rating) resultsPreview += ` ⭐${r.rating}`;
-                resultsPreview += `\n`;
-            }
-            resultsPreview += `\n✅ *Auto-selected:* ${selectedMovie.title}`;
-            await reply(resultsPreview);
+            const selectedMovie = results[0];
             
             const qualities = await getDownloadOptions(page, selectedMovie.url);
             
